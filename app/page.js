@@ -40,14 +40,13 @@ export default function Home() {
 
   const isWaferStick = bagian === "Wafer Stick";
   const isWaferFlat = bagian === "Wafer Flat";
-  const isSuperstar = SUPERSTAR_SKU.includes(selectedProduk);
+  const isSuperstar = selectedProduk.toUpperCase().includes("SUPERSTAR");
 
   useEffect(() => {
     if (!bagian) { setProdukList([]); setSelectedProduk(""); return; }
     fetch(`/api/produk-rm?bagian=${encodeURIComponent(bagian)}`)
-      .then((r) => r.json())
-      .then((d) => { setProdukList(d.data || []); setSelectedProduk(""); });
-  }, [bagian]);
+  .then((r) => r.json())
+  .then((d) => { setProdukList(d.data || []); setSelectedProduk(""); });
 
   useEffect(() => {
     fetchHistory(filterTanggal);

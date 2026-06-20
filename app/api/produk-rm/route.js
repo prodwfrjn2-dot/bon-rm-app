@@ -8,14 +8,13 @@ export async function GET(request) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Produk_RM!A2:C100",
+      range: "Produk_RM!A2:B100",
     });
 
     const rows = response.data.values || [];
     let produk = rows.map((row) => ({
-      sku: row[0] || "",
-      nama: row[1] || "",
-      bagian: row[2] || "",
+      nama: row[0] || "",
+      bagian: row[1] || "",
     }));
 
     if (bagian) {
