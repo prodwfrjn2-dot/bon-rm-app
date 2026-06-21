@@ -335,46 +335,6 @@ export default function Home() {
     win.print();
   };
 
-  const handleDownloadExcel = () => {
-    const filtered = history.filter((row) => filterBagian === "" || row.bagian === filterBagian);
-    const headers = [
-      "ID", "HARI", "TANGGAL", "JAM", "BAGIAN", "PENGORDER", "LINE", "PRODUK",
-      "ALT ADONAN PUTIH", "BON ADONAN PUTIH", "ALT ADONAN PITA", "BON ADONAN PITA",
-      "ALT CREAM", "BON CREAM", "ALT ADONAN", "BON ADONAN",
-      "ALT CREAM SPREADING", "BON CREAM SPREADING", "ALT CREAM COATING", "BON CREAM COATING",
-      "TUJUAN", "KETERANGAN", "STATUS VERIF", "NAMA VERIF", "JAM VERIF"
-    ];
-
-    const rows = filtered.map((row) => {
-      const verif = statusVerif[row.id];
-      return [
-        row.id, row.hari, row.tanggal, row.jam, row.bagian, row.pengorder, row.line, row.produk,
-        row.alt_adonan_putih, row.bon_adonan_putih,
-        row.alt_adonan_pita, row.bon_adonan_pita,
-        row.alt_cream, row.bon_cream,
-        row.alt_adonan, row.bon_adonan,
-        row.alt_cream_spreading, row.bon_cream_spreading,
-        row.alt_cream_coating, row.bon_cream_coating,
-        row.tujuan, row.keterangan,
-        verif?.sudah_verif ? "Sudah" : "Belum",
-        verif?.nama_verif || "",
-        verif?.jam_verif || "",
-      ];
-    });
-
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map((cell) => `"${cell}"`).join(","))
-      .join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `BON_RM_${filterTanggal}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <main className="min-h-screen bg-gray-100 p-3 md:p-6">
       <div className="max-w-2xl mx-auto space-y-4">
@@ -503,10 +463,7 @@ export default function Home() {
               </select>
               <input type="date" className="flex-1 border rounded-lg px-2 py-2 text-sm" value={filterTanggal} onChange={(e) => setFilterTanggal(e.target.value)} />
               {history.length > 0 && (
-                <>
-                  <button onClick={handleDownloadPDF} className="bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap">📄 PDF</button>
-                  <button onClick={handleDownloadExcel} className="bg-green-600 hover:bg-green-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap">📊 Excel</button>
-                </>
+                <button onClick={handleDownloadPDF} className="bg-red-600 hover:bg-red-700 text-white text-sm font-bold px-3 py-2 rounded-lg whitespace-nowrap">📄 PDF</button>
               )}
             </div>
           </div>
