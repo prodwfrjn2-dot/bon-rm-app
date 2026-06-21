@@ -19,33 +19,53 @@ export async function POST(request) {
       );
     }
 
-    // Cek sudah diverif belum untuk field ini
+    if (!jumlah_kirim || Number(jumlah_kirim) <= 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Jumlah kirim tidak valid!" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Cek total sudah terkirim untuk field ini
     const verifRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: "Verif_RM!A2:E10000",
     });
     const rows = verifRes.data.values || [];
-    const sudahVerif = rows.find((row) => row[0] === id_bon && row[1] === field);
-    if (sudahVerif) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Item ini sudah diverifikasi!" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
+    const existingRows = rows.filter((row) => row[0] === id_bon && row[1] === field);
+    const totalSudahKirim = existingRows.reduce((sum, row) => sum + Number(row[2] || 0), 0);
 
-    const jam_verif = new Date().toLocaleString("id-ID");
+    // Waktu Indonesia (WIB = UTC+7)
+    const now = new Date();
+    const wibOffset = 7 * 60 * 60 * 1000;
+    const wibTime = new Date(now.getTime() + wibOffset);
+    const jam_verif = wibTime.toISOString()
+      .replace("T", " ")
+      .replace("Z", "")
+      .slice(0, 19)
+      .split(" ")
+      .map((part, i) => {
+        if (i === 0) {
+          const [y, m, d] = part.split("-");
+          return `${d}/${m}/${y}`;
+        }
+        return part;
+      })
+      .join(", ");
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: "Verif_RM!A:E",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[id_bon, field, jumlah_kirim, nama_verif, jam_verif]],
+        values: [[id_bon, field, Number(jumlah_kirim), nama_verif, jam_verif]],
       },
     });
 
+    const totalBaru = totalSudahKirim + Number(jumlah_kirim);
+
     return new Response(
-      JSON.stringify({ success: true, jam_verif }),
+      JSON.stringify({ success: true, jam_verif, total_kirim: totalBaru }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {

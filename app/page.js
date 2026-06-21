@@ -30,7 +30,6 @@ export default function Home() {
   const [filterBagian, setFilterBagian] = useState("");
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Modal Revisi
   const [modalRevisi, setModalRevisi] = useState(null);
   const [revisiField, setRevisiField] = useState("");
   const [revisiNilaiLama, setRevisiNilaiLama] = useState("");
@@ -41,15 +40,14 @@ export default function Home() {
   const [revisiPesan, setRevisiPesan] = useState("");
   const [riwayatRevisi, setRiwayatRevisi] = useState({});
 
-  // Modal Verifikasi (per item)
-  const [modalVerif, setModalVerif] = useState(null); // { id, produk, bagian, field, label, alt, requested }
+  const [modalVerif, setModalVerif] = useState(null);
   const [verifNama, setVerifNama] = useState("");
   const [verifPassword, setVerifPassword] = useState("");
   const [verifJumlahKirim, setVerifJumlahKirim] = useState("");
   const [verifLoading, setVerifLoading] = useState(false);
   const [verifPesan, setVerifPesan] = useState("");
-  const [statusVerif, setStatusVerif] = useState({}); // { [id_bon]: [{field, jumlah_kirim, nama_verif, jam_verif}] }
-  const [verifAuthByBon, setVerifAuthByBon] = useState({}); // { [id_bon]: { nama, password } }
+  const [statusVerif, setStatusVerif] = useState({});
+  const [verifAuthByBon, setVerifAuthByBon] = useState({});
 
   const isWaferStick = bagian === "Wafer Stick";
   const isWaferFlat = bagian === "Wafer Flat";
@@ -73,9 +71,7 @@ export default function Home() {
     const rows = data.data || [];
     setHistory(rows);
     setLoadingHistory(false);
-    rows.forEach((row) => {
-      fetchStatusVerif(row.id);
-    });
+    rows.forEach((row) => fetchStatusVerif(row.id));
   };
 
   const fetchStatusVerif = async (id_bon) => {
@@ -88,6 +84,18 @@ export default function Home() {
     const res = await fetch(`/api/revisi-rm?id_bon=${id_bon}`);
     const data = await res.json();
     setRiwayatRevisi((prev) => ({ ...prev, [id_bon]: data.data || [] }));
+  };
+
+  const getTotalKirim = (id_bon, field) => {
+    const list = statusVerif[id_bon] || [];
+    return list
+      .filter((v) => v.field === field)
+      .reduce((sum, v) => sum + Number(v.jumlah_kirim || 0), 0);
+  };
+
+  const getRiwayatKirim = (id_bon, field) => {
+    const list = statusVerif[id_bon] || [];
+    return list.filter((v) => v.field === field);
   };
 
   const generateId = () => {
@@ -162,12 +170,8 @@ export default function Home() {
 
   const handleOpenRevisi = (row) => {
     setModalRevisi(row);
-    setRevisiField("");
-    setRevisiNilaiLama("");
-    setRevisiNilaiBaru("");
-    setRevisiNama("");
-    setRevisiPassword("");
-    setRevisiPesan("");
+    setRevisiField(""); setRevisiNilaiLama(""); setRevisiNilaiBaru("");
+    setRevisiNama(""); setRevisiPassword(""); setRevisiPesan("");
     fetchRiwayatRevisi(row.id);
   };
 
@@ -201,12 +205,9 @@ export default function Home() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        id_bon: modalRevisi.id,
-        field: revisiField,
-        nilai_lama: revisiNilaiLama,
-        nilai_baru: revisiNilaiBaru,
-        nama_editor: revisiNama,
-        password: revisiPassword,
+        id_bon: modalRevisi.id, field: revisiField,
+        nilai_lama: revisiNilaiLama, nilai_baru: revisiNilaiBaru,
+        nama_editor: revisiNama, password: revisiPassword,
       }),
     });
     const data = await res.json();
@@ -222,10 +223,8 @@ export default function Home() {
   };
 
   const getRevisiFields = (bagian, produk) => {
-    const isStick = bagian === "Wafer Stick";
-    const isFlat = bagian === "Wafer Flat";
     const isSuperstarProduk = produk?.toUpperCase().includes("SUPERSTAR");
-    if (isStick) return [
+    if (bagian === "Wafer Stick") return [
       { value: "alt_adonan_putih", label: "ALT Adonan Putih" },
       { value: "bon_adonan_putih", label: "BON Adonan Putih" },
       { value: "alt_adonan_pita", label: "ALT Adonan Pita" },
@@ -233,7 +232,7 @@ export default function Home() {
       { value: "alt_cream", label: "ALT Cream" },
       { value: "bon_cream", label: "BON Cream" },
     ];
-    if (isFlat) {
+    if (bagian === "Wafer Flat") {
       const fields = [
         { value: "alt_adonan", label: "ALT Adonan" },
         { value: "bon_adonan", label: "BON Adonan" },
@@ -249,7 +248,6 @@ export default function Home() {
     return [];
   };
 
-  // Daftar item yang perlu diverifikasi satu-satu, per bon
   const getVerifItems = (row) => {
     const items = [];
     if (row.bagian === "Wafer Stick") {
@@ -270,17 +268,26 @@ export default function Home() {
     const saved = verifAuthByBon[row.id];
     setVerifNama(saved?.nama || "");
     setVerifPassword(saved?.password || "");
-    setVerifJumlahKirim(item.requested || "");
+    setVerifJumlahKirim("");
     setVerifPesan("");
   };
 
   const handleVerif = async () => {
-    if (!verifJumlahKirim) { setVerifPesan("⚠️ Jumlah dikirim wajib diisi!"); return; }
+    if (!verifJumlahKirim || Number(verifJumlahKirim) <= 0) {
+      setVerifPesan("⚠️ Jumlah dikirim wajib diisi!"); return;
+    }
     const saved = verifAuthByBon[modalVerif.id];
     const namaToUse = saved?.nama || verifNama;
     const passwordToUse = saved?.password || verifPassword;
     if (!namaToUse.trim()) { setVerifPesan("⚠️ Nama wajib diisi!"); return; }
     if (!passwordToUse) { setVerifPesan("⚠️ Password wajib diisi!"); return; }
+
+    const totalSudah = getTotalKirim(modalVerif.id, modalVerif.field);
+    const sisa = Number(modalVerif.requested) - totalSudah;
+    if (Number(verifJumlahKirim) > sisa) {
+      setVerifPesan(`⚠️ Melebihi sisa BON! Sisa: ${sisa} batch`); return;
+    }
+
     setVerifLoading(true); setVerifPesan("");
     const res = await fetch("/api/verif-rm", {
       method: "POST",
@@ -288,7 +295,7 @@ export default function Home() {
       body: JSON.stringify({
         id_bon: modalVerif.id,
         field: modalVerif.field,
-        jumlah_kirim: verifJumlahKirim,
+        jumlah_kirim: Number(verifJumlahKirim),
         nama_verif: namaToUse,
         password: passwordToUse,
       }),
@@ -296,14 +303,15 @@ export default function Home() {
     const data = await res.json();
     setVerifLoading(false);
     if (data.success) {
-      setVerifPesan(`✅ Terverifikasi pada ${data.jam_verif}`);
+      setVerifPesan(`✅ Terkirim ${verifJumlahKirim} batch pada ${data.jam_verif}`);
       if (!saved) {
         setVerifAuthByBon((prev) => ({ ...prev, [modalVerif.id]: { nama: namaToUse, password: passwordToUse } }));
       }
       fetchStatusVerif(modalVerif.id);
       setTimeout(() => {
-        setModalVerif(null); setVerifNama(""); setVerifPassword(""); setVerifJumlahKirim(""); setVerifPesan("");
-      }, 1200);
+        setModalVerif(null); setVerifNama(""); setVerifPassword("");
+        setVerifJumlahKirim(""); setVerifPesan("");
+      }, 1500);
     } else {
       setVerifPesan("❌ " + data.error);
     }
@@ -314,7 +322,6 @@ export default function Home() {
     const tanggalFormatted = new Date(filterTanggal).toLocaleDateString("id-ID", {
       day: "numeric", month: "long", year: "numeric"
     });
-
     let html = `
       <html><head><title>BON RM ${tanggalFormatted}</title>
       <style>
@@ -324,17 +331,16 @@ export default function Home() {
         .group { margin-bottom: 16px; page-break-inside: avoid; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden; }
         .group-header { background: #1d4ed8; color: white; padding: 6px 10px; font-weight: bold; display: flex; justify-content: space-between; }
         .produk { background: #f3f4f6; padding: 4px 10px; font-size: 10px; color: #444; }
-        .row { display: flex; justify-content: space-between; padding: 3px 10px; border-bottom: 1px solid #f3f4f6; }
-        .footer { padding: 4px 10px; color: #666; font-size: 10px; background: #f9fafb; }
-        .verif { color: #16a34a; font-size: 9px; }
+        .item { padding: 4px 10px; border-bottom: 1px solid #f3f4f6; }
+        .item-header { display: flex; justify-content: space-between; font-weight: bold; }
+        .riwayat { color: #16a34a; font-size: 9px; padding-left: 8px; }
         .belum { color: #b91c1c; font-size: 9px; }
+        .footer { padding: 4px 10px; color: #666; font-size: 10px; background: #f9fafb; }
       </style></head><body>
       <h2>📦 Laporan BON RM - ${tanggalFormatted}</h2>
       <div class="subtitle">Dicetak pada: ${new Date().toLocaleString("id-ID")}</div>
     `;
-
     filtered.forEach((row) => {
-      const verifList = statusVerif[row.id] || [];
       html += `
         <div class="group">
           <div class="group-header">
@@ -344,16 +350,25 @@ export default function Home() {
           <div class="produk">${row.produk} · ID: ${row.id}</div>
       `;
       getVerifItems(row).forEach((item) => {
-        const v = verifList.find((x) => x.field === item.field);
-        html += `<div class="row">
-          <span>${item.label} (ALT ${item.alt}) — diminta ${item.requested} batch</span>
-          <span>${v ? `<span class="verif">✓ Kirim ${v.jumlah_kirim} batch — ${v.nama_verif}</span>` : `<span class="belum">Belum diverifikasi</span>`}</span>
-        </div>`;
+        const riwayat = getRiwayatKirim(row.id, item.field);
+        const total = riwayat.reduce((s, v) => s + Number(v.jumlah_kirim || 0), 0);
+        html += `<div class="item">
+          <div class="item-header">
+            <span>${item.label} (ALT ${item.alt}) — BON ${item.requested} batch</span>
+            <span>Total kirim: ${total} batch</span>
+          </div>`;
+        if (riwayat.length > 0) {
+          riwayat.forEach((v) => {
+            html += `<div class="riwayat">✓ ${v.jumlah_kirim} batch — ${v.nama_verif} — ${v.jam_verif}</div>`;
+          });
+        } else {
+          html += `<div class="belum">Belum ada pengiriman</div>`;
+        }
+        html += `</div>`;
       });
       html += `<div class="footer">Tujuan: ${row.tujuan}${row.keterangan ? " · Ket: " + row.keterangan : ""}</div>`;
       html += `</div>`;
     });
-
     html += `</body></html>`;
     const win = window.open("", "_blank");
     win.document.write(html);
@@ -460,6 +475,7 @@ export default function Home() {
                   <option value="">-- Pilih Tujuan --</option>
                   <option value="Lokal">Lokal</option>
                   <option value="Ekspor">Ekspor</option>
+                  <option value="Lokal & Ekspor">Lokal & Ekspor</option>
                   <option value="Thailand">Thailand</option>
                 </select>
               </div>
@@ -502,7 +518,6 @@ export default function Home() {
               {history
                 .filter((row) => filterBagian === "" || row.bagian === filterBagian)
                 .map((row, i) => {
-                  const verifList = statusVerif[row.id] || [];
                   const verifItems = getVerifItems(row);
                   return (
                     <div key={i} className="border rounded-lg overflow-hidden">
@@ -513,33 +528,57 @@ export default function Home() {
                       <div className="px-3 py-1 bg-gray-50 text-xs text-gray-500">{row.id}</div>
                       <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{row.produk}</div>
 
-                      <div className="px-3 py-2 space-y-2">
+                      <div className="px-3 py-2 space-y-3">
                         {verifItems.map((item) => {
-                          const verified = verifList.find((v) => v.field === item.field);
+                          const riwayat = getRiwayatKirim(row.id, item.field);
+                          const totalKirim = riwayat.reduce((s, v) => s + Number(v.jumlah_kirim || 0), 0);
+                          const sudahLunas = totalKirim >= Number(item.requested);
+                          const sisa = Number(item.requested) - totalKirim;
                           return (
-                            <div key={item.field} className="flex items-center justify-between gap-2 border-b pb-2 last:border-b-0 last:pb-0">
-                              <div className="text-xs">
-                                <div className="font-medium">{item.label} <span className="text-gray-400">(ALT {item.alt})</span></div>
-                                <div className="text-gray-400">Diminta: {item.requested} batch</div>
-                              </div>
-                              {verified ? (
-                                <div className="text-xs text-green-700 bg-green-50 rounded-lg px-2 py-1.5 text-right whitespace-nowrap">
-                                  ✅ Kirim {verified.jumlah_kirim} batch
-                                  <br /><span className="text-gray-400">{verified.nama_verif}</span>
+                            <div key={item.field} className={`border rounded-lg p-2 ${sudahLunas ? "bg-green-50 border-green-200" : "bg-gray-50"}`}>
+                              <div className="flex justify-between items-center mb-1">
+                                <div className="text-xs font-medium">{item.label} <span className="text-gray-400">(ALT {item.alt})</span></div>
+                                <div className="text-xs">
+                                  <span className={sudahLunas ? "text-green-600 font-bold" : "text-orange-500"}>
+                                    {totalKirim}/{item.requested} batch
+                                  </span>
                                 </div>
-                              ) : (
-                                <button onClick={() => handleOpenVerif(row, item)} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg whitespace-nowrap">✅ Verifikasi</button>
+                              </div>
+
+                              {/* Riwayat Pengiriman */}
+                              {riwayat.length > 0 && (
+                                <div className="space-y-0.5 mb-2">
+                                  {riwayat.map((v, vi) => (
+                                    <div key={vi} className="flex justify-between text-xs text-green-700">
+                                      <span>✓ {v.jumlah_kirim} batch — {v.nama_verif}</span>
+                                      <span className="text-gray-400">{v.jam_verif}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Tombol Verifikasi */}
+                              {!sudahLunas && (
+                                <button
+                                  onClick={() => handleOpenVerif(row, item)}
+                                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 rounded-lg mt-1"
+                                >
+                                  ✅ Catat Pengiriman (sisa {sisa} batch)
+                                </button>
+                              )}
+                              {sudahLunas && (
+                                <div className="text-xs text-green-600 font-semibold text-center">✅ Selesai</div>
                               )}
                             </div>
                           );
                         })}
-                        <div className="flex justify-between text-xs text-gray-500 pt-1">
+
+                        <div className="flex justify-between text-xs text-gray-500 pt-1 border-t">
                           <span>Tujuan: {row.tujuan}</span>
                           {row.keterangan && <span>Ket: {row.keterangan}</span>}
                         </div>
                       </div>
 
-                      {/* Tombol Revisi */}
                       <div className="px-3 py-2 bg-gray-50 border-t">
                         <button onClick={() => handleOpenRevisi(row)} className="w-full bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold py-2 rounded-lg">✏️ Revisi</button>
                       </div>
@@ -558,7 +597,6 @@ export default function Home() {
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-1">✏️ Revisi BON RM</h3>
             <p className="text-xs text-gray-500 mb-4">ID: {modalRevisi.id} · {modalRevisi.produk}</p>
-
             {(riwayatRevisi[modalRevisi.id] || []).length > 0 && (
               <div className="mb-4 bg-gray-50 rounded-lg p-3">
                 <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Revisi:</p>
@@ -572,7 +610,6 @@ export default function Home() {
                 </div>
               </div>
             )}
-
             <div className="space-y-3 mb-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Field yang direvisi</label>
@@ -602,7 +639,6 @@ export default function Home() {
                 <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password" value={revisiPassword} onChange={(e) => setRevisiPassword(e.target.value)} />
               </div>
             </div>
-
             {revisiPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{revisiPesan}</div>}
             <div className="flex gap-2">
               <button onClick={() => setModalRevisi(null)} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
@@ -614,24 +650,25 @@ export default function Home() {
         </div>
       )}
 
-      {/* Modal Verifikasi (per item) */}
+      {/* Modal Verifikasi */}
       {modalVerif && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-1">✅ Verifikasi Pengiriman</h3>
+            <h3 className="text-lg font-bold mb-1">✅ Catat Pengiriman</h3>
             <p className="text-xs text-gray-500 mb-1">ID: {modalVerif.id}</p>
             <p className="text-sm font-medium mb-1">{modalVerif.produk}</p>
-            <p className="text-sm font-semibold text-indigo-700 mb-4">{modalVerif.label} <span className="text-gray-400 font-normal">(diminta {modalVerif.requested} batch)</span></p>
-
+            <p className="text-sm font-semibold text-indigo-700 mb-1">{modalVerif.label}</p>
+            <p className="text-xs text-gray-500 mb-4">
+              BON: {modalVerif.requested} batch · Sudah kirim: {getTotalKirim(modalVerif.id, modalVerif.field)} batch · Sisa: {Number(modalVerif.requested) - getTotalKirim(modalVerif.id, modalVerif.field)} batch
+            </p>
             <div className="space-y-3 mb-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Jumlah Dikirim (batch)</label>
                 <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Jumlah dikirim" value={verifJumlahKirim} onChange={(e) => setVerifJumlahKirim(e.target.value)} />
               </div>
-
               {verifAuthByBon[modalVerif.id] ? (
                 <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-                  Verifikator: <span className="font-semibold">{verifAuthByBon[modalVerif.id].nama}</span> <span className="text-gray-400">(tersimpan untuk bon ini)</span>
+                  Nama: <span className="font-semibold">{verifAuthByBon[modalVerif.id].nama}</span>
                 </div>
               ) : (
                 <>
