@@ -4,7 +4,14 @@ export async function POST(request) {
   try {
     const sheets = await getSheets();
     const body = await request.json();
-    const { id_bon, nama_verif, password } = body;
+    const { id_bon, field, jumlah_kirim, nama_verif, password } = body;
+
+    if (!id_bon || !field || !jumlah_kirim || !nama_verif || !password) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Data tidak lengkap!" }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
 
     // Cek password
     const usersRes = await sheets.spreadsheets.values.get({
@@ -19,16 +26,16 @@ export async function POST(request) {
       );
     }
 
-    // Cek sudah diverif belum
+    // Cek item ini sudah diverifikasi belum
     const verifRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Verif_RM!A2:C10000",
+      range: "Verif_RM!A2:E10000",
     });
     const rows = verifRes.data.values || [];
-    const sudahVerif = rows.find((row) => row[0] === id_bon);
+    const sudahVerif = rows.find((row) => row[0] === id_bon && row[1] === field);
     if (sudahVerif) {
       return new Response(
-        JSON.stringify({ success: false, error: "BON ini sudah diverifikasi!" }),
+        JSON.stringify({ success: false, error: "Item ini sudah diverifikasi!" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -37,10 +44,10 @@ export async function POST(request) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
-      range: "Verif_RM!A:C",
+      range: "Verif_RM!A:E",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[id_bon, nama_verif, jam_verif]],
+        values: [[id_bon, field, jumlah_kirim, nama_verif, jam_verif]],
       },
     });
 
@@ -64,19 +71,21 @@ export async function GET(request) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Verif_RM!A2:C10000",
+      range: "Verif_RM!A2:E10000",
     });
 
     const rows = response.data.values || [];
-    const found = rows.find((row) => row[0] === id_bon);
+    const data = rows
+      .filter((row) => row[0] === id_bon)
+      .map((row) => ({
+        field: row[1] || "",
+        jumlah_kirim: row[2] || "",
+        nama_verif: row[3] || "",
+        jam_verif: row[4] || "",
+      }));
 
     return new Response(
-      JSON.stringify({
-        success: true,
-        sudah_verif: !!found,
-        nama_verif: found?.[1] || "",
-        jam_verif: found?.[2] || "",
-      }),
+      JSON.stringify({ success: true, data }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {

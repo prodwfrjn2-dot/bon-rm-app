@@ -41,13 +41,15 @@ export default function Home() {
   const [revisiPesan, setRevisiPesan] = useState("");
   const [riwayatRevisi, setRiwayatRevisi] = useState({});
 
-  // Modal Verifikasi
-  const [modalVerif, setModalVerif] = useState(null);
+  // Modal Verifikasi (per item)
+  const [modalVerif, setModalVerif] = useState(null); // { id, produk, bagian, field, label, alt, requested }
   const [verifNama, setVerifNama] = useState("");
   const [verifPassword, setVerifPassword] = useState("");
+  const [verifJumlahKirim, setVerifJumlahKirim] = useState("");
   const [verifLoading, setVerifLoading] = useState(false);
   const [verifPesan, setVerifPesan] = useState("");
-  const [statusVerif, setStatusVerif] = useState({});
+  const [statusVerif, setStatusVerif] = useState({}); // { [id_bon]: [{field, jumlah_kirim, nama_verif, jam_verif}] }
+  const [verifAuthByBon, setVerifAuthByBon] = useState({}); // { [id_bon]: { nama, password } }
 
   const isWaferStick = bagian === "Wafer Stick";
   const isWaferFlat = bagian === "Wafer Flat";
@@ -79,7 +81,7 @@ export default function Home() {
   const fetchStatusVerif = async (id_bon) => {
     const res = await fetch(`/api/verif-rm?id_bon=${id_bon}`);
     const data = await res.json();
-    setStatusVerif((prev) => ({ ...prev, [id_bon]: data }));
+    setStatusVerif((prev) => ({ ...prev, [id_bon]: data.data || [] }));
   };
 
   const fetchRiwayatRevisi = async (id_bon) => {
@@ -219,37 +221,6 @@ export default function Home() {
     }
   };
 
-  const handleOpenVerif = (row) => {
-    setModalVerif(row);
-    setVerifNama("");
-    setVerifPassword("");
-    setVerifPesan("");
-  };
-
-  const handleVerif = async () => {
-    if (!verifNama.trim()) { setVerifPesan("⚠️ Nama wajib diisi!"); return; }
-    if (!verifPassword) { setVerifPesan("⚠️ Password wajib diisi!"); return; }
-    setVerifLoading(true); setVerifPesan("");
-    const res = await fetch("/api/verif-rm", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id_bon: modalVerif.id,
-        nama_verif: verifNama,
-        password: verifPassword,
-      }),
-    });
-    const data = await res.json();
-    setVerifLoading(false);
-    if (data.success) {
-      setVerifPesan(`✅ Terverifikasi pada ${data.jam_verif}`);
-      fetchStatusVerif(modalVerif.id);
-      setTimeout(() => { setModalVerif(null); setVerifNama(""); setVerifPassword(""); setVerifPesan(""); }, 1500);
-    } else {
-      setVerifPesan("❌ " + data.error);
-    }
-  };
-
   const getRevisiFields = (bagian, produk) => {
     const isStick = bagian === "Wafer Stick";
     const isFlat = bagian === "Wafer Flat";
@@ -278,6 +249,66 @@ export default function Home() {
     return [];
   };
 
+  // Daftar item yang perlu diverifikasi satu-satu, per bon
+  const getVerifItems = (row) => {
+    const items = [];
+    if (row.bagian === "Wafer Stick") {
+      if (row.bon_adonan_putih) items.push({ field: "adonan_putih", label: "Adonan Putih", alt: row.alt_adonan_putih, requested: row.bon_adonan_putih });
+      if (row.bon_adonan_pita) items.push({ field: "adonan_pita", label: "Adonan Pita", alt: row.alt_adonan_pita, requested: row.bon_adonan_pita });
+      if (row.bon_cream) items.push({ field: "cream", label: "Cream", alt: row.alt_cream, requested: row.bon_cream });
+    }
+    if (row.bagian === "Wafer Flat") {
+      if (row.bon_adonan) items.push({ field: "adonan", label: "Adonan", alt: row.alt_adonan, requested: row.bon_adonan });
+      if (row.bon_cream_spreading) items.push({ field: "cream_spreading", label: "Cream Spreading", alt: row.alt_cream_spreading, requested: row.bon_cream_spreading });
+      if (row.bon_cream_coating) items.push({ field: "cream_coating", label: "Cream Coating", alt: row.alt_cream_coating, requested: row.bon_cream_coating });
+    }
+    return items;
+  };
+
+  const handleOpenVerif = (row, item) => {
+    setModalVerif({ id: row.id, produk: row.produk, bagian: row.bagian, ...item });
+    const saved = verifAuthByBon[row.id];
+    setVerifNama(saved?.nama || "");
+    setVerifPassword(saved?.password || "");
+    setVerifJumlahKirim(item.requested || "");
+    setVerifPesan("");
+  };
+
+  const handleVerif = async () => {
+    if (!verifJumlahKirim) { setVerifPesan("⚠️ Jumlah dikirim wajib diisi!"); return; }
+    const saved = verifAuthByBon[modalVerif.id];
+    const namaToUse = saved?.nama || verifNama;
+    const passwordToUse = saved?.password || verifPassword;
+    if (!namaToUse.trim()) { setVerifPesan("⚠️ Nama wajib diisi!"); return; }
+    if (!passwordToUse) { setVerifPesan("⚠️ Password wajib diisi!"); return; }
+    setVerifLoading(true); setVerifPesan("");
+    const res = await fetch("/api/verif-rm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id_bon: modalVerif.id,
+        field: modalVerif.field,
+        jumlah_kirim: verifJumlahKirim,
+        nama_verif: namaToUse,
+        password: passwordToUse,
+      }),
+    });
+    const data = await res.json();
+    setVerifLoading(false);
+    if (data.success) {
+      setVerifPesan(`✅ Terverifikasi pada ${data.jam_verif}`);
+      if (!saved) {
+        setVerifAuthByBon((prev) => ({ ...prev, [modalVerif.id]: { nama: namaToUse, password: passwordToUse } }));
+      }
+      fetchStatusVerif(modalVerif.id);
+      setTimeout(() => {
+        setModalVerif(null); setVerifNama(""); setVerifPassword(""); setVerifJumlahKirim(""); setVerifPesan("");
+      }, 1200);
+    } else {
+      setVerifPesan("❌ " + data.error);
+    }
+  };
+
   const handleDownloadPDF = () => {
     const filtered = history.filter((row) => filterBagian === "" || row.bagian === filterBagian);
     const tanggalFormatted = new Date(filterTanggal).toLocaleDateString("id-ID", {
@@ -295,14 +326,15 @@ export default function Home() {
         .produk { background: #f3f4f6; padding: 4px 10px; font-size: 10px; color: #444; }
         .row { display: flex; justify-content: space-between; padding: 3px 10px; border-bottom: 1px solid #f3f4f6; }
         .footer { padding: 4px 10px; color: #666; font-size: 10px; background: #f9fafb; }
-        .verif { padding: 4px 10px; color: #16a34a; font-size: 10px; background: #f0fdf4; }
+        .verif { color: #16a34a; font-size: 9px; }
+        .belum { color: #b91c1c; font-size: 9px; }
       </style></head><body>
       <h2>📦 Laporan BON RM - ${tanggalFormatted}</h2>
       <div class="subtitle">Dicetak pada: ${new Date().toLocaleString("id-ID")}</div>
     `;
 
     filtered.forEach((row) => {
-      const verif = statusVerif[row.id];
+      const verifList = statusVerif[row.id] || [];
       html += `
         <div class="group">
           <div class="group-header">
@@ -311,20 +343,14 @@ export default function Home() {
           </div>
           <div class="produk">${row.produk} · ID: ${row.id}</div>
       `;
-      if (row.bagian === "Wafer Stick") {
-        if (row.bon_adonan_putih) html += `<div class="row"><span>Adonan Putih (ALT ${row.alt_adonan_putih})</span><span>${row.bon_adonan_putih} batch</span></div>`;
-        if (row.bon_adonan_pita) html += `<div class="row"><span>Adonan Pita (ALT ${row.alt_adonan_pita})</span><span>${row.bon_adonan_pita} batch</span></div>`;
-        if (row.bon_cream) html += `<div class="row"><span>Cream (ALT ${row.alt_cream})</span><span>${row.bon_cream} batch</span></div>`;
-      }
-      if (row.bagian === "Wafer Flat") {
-        if (row.bon_adonan) html += `<div class="row"><span>Adonan (ALT ${row.alt_adonan})</span><span>${row.bon_adonan} batch</span></div>`;
-        if (row.bon_cream_spreading) html += `<div class="row"><span>Cream Spreading (ALT ${row.alt_cream_spreading})</span><span>${row.bon_cream_spreading} batch</span></div>`;
-        if (row.bon_cream_coating) html += `<div class="row"><span>Cream Coating (ALT ${row.alt_cream_coating})</span><span>${row.bon_cream_coating} batch</span></div>`;
-      }
+      getVerifItems(row).forEach((item) => {
+        const v = verifList.find((x) => x.field === item.field);
+        html += `<div class="row">
+          <span>${item.label} (ALT ${item.alt}) — diminta ${item.requested} batch</span>
+          <span>${v ? `<span class="verif">✓ Kirim ${v.jumlah_kirim} batch — ${v.nama_verif}</span>` : `<span class="belum">Belum diverifikasi</span>`}</span>
+        </div>`;
+      });
       html += `<div class="footer">Tujuan: ${row.tujuan}${row.keterangan ? " · Ket: " + row.keterangan : ""}</div>`;
-      if (verif?.sudah_verif) {
-        html += `<div class="verif">✓ Terverifikasi oleh ${verif.nama_verif} pada ${verif.jam_verif}</div>`;
-      }
       html += `</div>`;
     });
 
@@ -477,7 +503,8 @@ export default function Home() {
               {history
                 .filter((row) => filterBagian === "" || row.bagian === filterBagian)
                 .map((row, i) => {
-                  const verif = statusVerif[row.id];
+                  const verifList = statusVerif[row.id] || [];
+                  const verifItems = getVerifItems(row);
                   return (
                     <div key={i} className="border rounded-lg overflow-hidden">
                       <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
@@ -486,38 +513,36 @@ export default function Home() {
                       </div>
                       <div className="px-3 py-1 bg-gray-50 text-xs text-gray-500">{row.id}</div>
                       <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{row.produk}</div>
-                      <div className="px-3 py-2 text-xs space-y-1">
-                        {row.bagian === "Wafer Stick" && (
-                          <>
-                            {row.bon_adonan_putih && <div className="flex justify-between"><span>Adonan Putih (ALT {row.alt_adonan_putih})</span><span className="font-bold">{row.bon_adonan_putih} batch</span></div>}
-                            {row.bon_adonan_pita && <div className="flex justify-between"><span>Adonan Pita (ALT {row.alt_adonan_pita})</span><span className="font-bold">{row.bon_adonan_pita} batch</span></div>}
-                            {row.bon_cream && <div className="flex justify-between"><span>Cream (ALT {row.alt_cream})</span><span className="font-bold">{row.bon_cream} batch</span></div>}
-                          </>
-                        )}
-                        {row.bagian === "Wafer Flat" && (
-                          <>
-                            {row.bon_adonan && <div className="flex justify-between"><span>Adonan (ALT {row.alt_adonan})</span><span className="font-bold">{row.bon_adonan} batch</span></div>}
-                            {row.bon_cream_spreading && <div className="flex justify-between"><span>Cream Spreading (ALT {row.alt_cream_spreading})</span><span className="font-bold">{row.bon_cream_spreading} batch</span></div>}
-                            {row.bon_cream_coating && <div className="flex justify-between"><span>Cream Coating (ALT {row.alt_cream_coating})</span><span className="font-bold">{row.bon_cream_coating} batch</span></div>}
-                          </>
-                        )}
-                        <div className="flex justify-between text-gray-500 pt-1 border-t">
+
+                      <div className="px-3 py-2 space-y-2">
+                        {verifItems.map((item) => {
+                          const verified = verifList.find((v) => v.field === item.field);
+                          return (
+                            <div key={item.field} className="flex items-center justify-between gap-2 border-b pb-2 last:border-b-0 last:pb-0">
+                              <div className="text-xs">
+                                <div className="font-medium">{item.label} <span className="text-gray-400">(ALT {item.alt})</span></div>
+                                <div className="text-gray-400">Diminta: {item.requested} batch</div>
+                              </div>
+                              {verified ? (
+                                <div className="text-xs text-green-700 bg-green-50 rounded-lg px-2 py-1.5 text-right whitespace-nowrap">
+                                  ✅ Kirim {verified.jumlah_kirim} batch
+                                  <br /><span className="text-gray-400">{verified.nama_verif}</span>
+                                </div>
+                              ) : (
+                                <button onClick={() => handleOpenVerif(row, item)} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg whitespace-nowrap">✅ Verifikasi</button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        <div className="flex justify-between text-xs text-gray-500 pt-1">
                           <span>Tujuan: {row.tujuan}</span>
                           {row.keterangan && <span>Ket: {row.keterangan}</span>}
                         </div>
                       </div>
 
-                      {/* Tombol Revisi & Verifikasi */}
-                      <div className="px-3 py-2 bg-gray-50 border-t flex gap-2">
-                        <button onClick={() => handleOpenRevisi(row)} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold py-2 rounded-lg">✏️ Revisi</button>
-                        {verif?.sudah_verif ? (
-                          <div className="flex-1 text-xs text-green-700 bg-green-50 rounded-lg px-3 py-2">
-                            ✅ <span className="font-semibold">{verif.nama_verif}</span>
-                            <br /><span className="text-gray-400">{verif.jam_verif}</span>
-                          </div>
-                        ) : (
-                          <button onClick={() => handleOpenVerif(row)} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded-lg">✅ Verifikasi</button>
-                        )}
+                      {/* Tombol Revisi */}
+                      <div className="px-3 py-2 bg-gray-50 border-t">
+                        <button onClick={() => handleOpenRevisi(row)} className="w-full bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold py-2 rounded-lg">✏️ Revisi</button>
                       </div>
                     </div>
                   );
@@ -590,26 +615,41 @@ export default function Home() {
         </div>
       )}
 
-      {/* Modal Verifikasi */}
+      {/* Modal Verifikasi (per item) */}
       {modalVerif && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-bold mb-1">✅ Verifikasi Pengiriman</h3>
             <p className="text-xs text-gray-500 mb-1">ID: {modalVerif.id}</p>
-            <p className="text-sm font-medium mb-4">{modalVerif.produk}</p>
+            <p className="text-sm font-medium mb-1">{modalVerif.produk}</p>
+            <p className="text-sm font-semibold text-indigo-700 mb-4">{modalVerif.label} <span className="text-gray-400 font-normal">(diminta {modalVerif.requested} batch)</span></p>
+
             <div className="space-y-3 mb-3">
               <div>
-                <label className="block text-sm font-medium mb-1">Nama</label>
-                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={verifNama} onChange={(e) => setVerifNama(e.target.value)} />
+                <label className="block text-sm font-medium mb-1">Jumlah Dikirim (batch)</label>
+                <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Jumlah dikirim" value={verifJumlahKirim} onChange={(e) => setVerifJumlahKirim(e.target.value)} />
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Password</label>
-                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password" value={verifPassword} onChange={(e) => setVerifPassword(e.target.value)} />
-              </div>
+
+              {verifAuthByBon[modalVerif.id] ? (
+                <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                  Verifikator: <span className="font-semibold">{verifAuthByBon[modalVerif.id].nama}</span> <span className="text-gray-400">(tersimpan untuk bon ini)</span>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Nama</label>
+                    <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={verifNama} onChange={(e) => setVerifNama(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Password</label>
+                    <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password" value={verifPassword} onChange={(e) => setVerifPassword(e.target.value)} />
+                  </div>
+                </>
+              )}
             </div>
             {verifPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{verifPesan}</div>}
             <div className="flex gap-2">
-              <button onClick={() => { setModalVerif(null); setVerifNama(""); setVerifPassword(""); setVerifPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
+              <button onClick={() => { setModalVerif(null); setVerifPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
               <button onClick={handleVerif} disabled={verifLoading} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl py-2 text-sm">
                 {verifLoading ? "Menyimpan..." : "✅ Konfirmasi"}
               </button>
