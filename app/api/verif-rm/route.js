@@ -6,13 +6,6 @@ export async function POST(request) {
     const body = await request.json();
     const { id_bon, field, jumlah_kirim, nama_verif, password } = body;
 
-    if (!id_bon || !field || !jumlah_kirim || !nama_verif || !password) {
-      return new Response(
-        JSON.stringify({ success: false, error: "Data tidak lengkap!" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
     // Cek password
     const usersRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
@@ -26,7 +19,7 @@ export async function POST(request) {
       );
     }
 
-    // Cek item ini sudah diverifikasi belum
+    // Cek sudah diverif belum untuk field ini
     const verifRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: "Verif_RM!A2:E10000",
@@ -75,9 +68,10 @@ export async function GET(request) {
     });
 
     const rows = response.data.values || [];
-    const data = rows
+    const filtered = rows
       .filter((row) => row[0] === id_bon)
       .map((row) => ({
+        id_bon: row[0] || "",
         field: row[1] || "",
         jumlah_kirim: row[2] || "",
         nama_verif: row[3] || "",
@@ -85,7 +79,7 @@ export async function GET(request) {
       }));
 
     return new Response(
-      JSON.stringify({ success: true, data }),
+      JSON.stringify({ success: true, data: filtered }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {

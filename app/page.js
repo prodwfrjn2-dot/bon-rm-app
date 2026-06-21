@@ -460,7 +460,6 @@ export default function Home() {
                   <option value="">-- Pilih Tujuan --</option>
                   <option value="Lokal">Lokal</option>
                   <option value="Ekspor">Ekspor</option>
-                  <option value="Lokal Ekspor">Lokal Ekspor</option>
                   <option value="Thailand">Thailand</option>
                 </select>
               </div>
