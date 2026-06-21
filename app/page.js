@@ -1,13 +1,10 @@
 "use client";
 import { useState, useEffect } from "react";
 
-const SUPERSTAR_SKU = ["WF001"]; // ganti dengan SKU produk Superstar yang sebenarnya
-
 export default function Home() {
   const [bagian, setBagian] = useState("");
   const [produkList, setProdukList] = useState([]);
   const [selectedProduk, setSelectedProduk] = useState("");
-  const [selectedProdukNama, setSelectedProdukNama] = useState("");
   const [pengorder, setPengorder] = useState("");
   const [line, setLine] = useState("");
   const [tujuan, setTujuan] = useState("");
@@ -43,10 +40,18 @@ export default function Home() {
   const isSuperstar = selectedProduk.toUpperCase().includes("SUPERSTAR");
 
   useEffect(() => {
-    if (!bagian) { setProdukList([]); setSelectedProduk(""); return; }
+    if (!bagian) {
+      setProdukList([]);
+      setSelectedProduk("");
+      return;
+    }
     fetch(`/api/produk-rm?bagian=${encodeURIComponent(bagian)}`)
-  .then((r) => r.json())
-  .then((d) => { setProdukList(d.data || []); setSelectedProduk(""); });
+      .then((r) => r.json())
+      .then((d) => {
+        setProdukList(d.data || []);
+        setSelectedProduk("");
+      });
+  }, [bagian]);
 
   useEffect(() => {
     fetchHistory(filterTanggal);
@@ -74,7 +79,7 @@ export default function Home() {
   };
 
   const resetForm = () => {
-    setBagian(""); setSelectedProduk(""); setSelectedProdukNama("");
+    setBagian(""); setSelectedProduk("");
     setPengorder(""); setLine(""); setTujuan(""); setKeterangan("");
     setAltAdonanPutih(""); setBonAdonanPutih("");
     setAltAdonanPita(""); setBonAdonanPita("");
@@ -100,7 +105,7 @@ export default function Home() {
         tanggal: now.toLocaleDateString("id-ID"),
         jam: now.toLocaleTimeString("id-ID"),
         bagian, pengorder, line,
-        produk: selectedProdukNama,
+        produk: selectedProduk,
         alt_adonan_putih: altAdonanPutih,
         bon_adonan_putih: bonAdonanPutih,
         alt_adonan_pita: altAdonanPita,
@@ -138,7 +143,6 @@ export default function Home() {
           </h1>
 
           <div className="flex flex-col gap-3 mb-4">
-            {/* Bagian */}
             <div>
               <label className="block text-sm font-medium mb-1">Bagian</label>
               <select className="w-full border rounded-lg px-3 py-2 text-sm" value={bagian} onChange={(e) => { setBagian(e.target.value); setSelectedProduk(""); }}>
@@ -148,7 +152,6 @@ export default function Home() {
               </select>
             </div>
 
-            {/* Pengorder & Line */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Pengorder</label>
@@ -160,12 +163,11 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Produk */}
             <div>
               <label className="block text-sm font-medium mb-1">Produk</label>
-              <select className="w-full border rounded-lg px-3 py-2 text-sm" value={selectedProduk} onChange={(e) => { setSelectedProduk(e.target.value); setSelectedProdukNama(produkList.find((p) => p.sku === e.target.value)?.nama || ""); }} disabled={!bagian}>
+              <select className="w-full border rounded-lg px-3 py-2 text-sm" value={selectedProduk} onChange={(e) => setSelectedProduk(e.target.value)} disabled={!bagian}>
                 <option value="">{bagian ? "-- Pilih Produk --" : "-- Pilih Bagian Dulu --"}</option>
-                {produkList.map((p) => (<option key={p.sku} value={p.sku}>{p.nama}</option>))}
+                {produkList.map((p, i) => (<option key={i} value={p.nama}>{p.nama}</option>))}
               </select>
             </div>
 
@@ -215,7 +217,6 @@ export default function Home() {
                     <input type="number" className="border rounded-lg px-3 py-2 text-sm" placeholder="BON (batch)" value={bonCreamSpreading} onChange={(e) => setBonCreamSpreading(e.target.value)} />
                   </div>
                 </div>
-                {/* Cream Coating hanya untuk Superstar */}
                 {isSuperstar && (
                   <div>
                     <label className="block text-xs font-medium mb-1">Cream Coating</label>
@@ -228,7 +229,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* Tujuan & Keterangan */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Tujuan</label>
@@ -281,7 +281,6 @@ export default function Home() {
                     </div>
                     <div className="px-3 py-1 bg-gray-50 text-xs text-gray-600 font-medium">{row.produk}</div>
                     <div className="px-3 py-2 text-xs space-y-1">
-                      {/* Wafer Stick */}
                       {row.bagian === "Wafer Stick" && (
                         <>
                           {row.bon_adonan_putih && <div className="flex justify-between"><span>Adonan Putih (ALT {row.alt_adonan_putih})</span><span className="font-bold">{row.bon_adonan_putih} batch</span></div>}
@@ -289,7 +288,6 @@ export default function Home() {
                           {row.bon_cream && <div className="flex justify-between"><span>Cream (ALT {row.alt_cream})</span><span className="font-bold">{row.bon_cream} batch</span></div>}
                         </>
                       )}
-                      {/* Wafer Flat */}
                       {row.bagian === "Wafer Flat" && (
                         <>
                           {row.bon_adonan && <div className="flex justify-between"><span>Adonan (ALT {row.alt_adonan})</span><span className="font-bold">{row.bon_adonan} batch</span></div>}
