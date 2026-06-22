@@ -47,7 +47,6 @@ export default function Home() {
   const [verifLoading, setVerifLoading] = useState(false);
   const [verifPesan, setVerifPesan] = useState("");
   const [statusVerif, setStatusVerif] = useState({});
-  const [verifAuthByBon, setVerifAuthByBon] = useState({});
 
   const isWaferStick = bagian === "Wafer Stick";
   const isWaferFlat = bagian === "Wafer Flat";
@@ -71,7 +70,10 @@ export default function Home() {
     const rows = data.data || [];
     setHistory(rows);
     setLoadingHistory(false);
-    rows.forEach((row) => fetchStatusVerif(row.id));
+    rows.forEach((row) => {
+      fetchStatusVerif(row.id);
+      fetchRiwayatRevisi(row.id);
+    });
   };
 
   const fetchStatusVerif = async (id_bon) => {
@@ -265,9 +267,8 @@ export default function Home() {
 
   const handleOpenVerif = (row, item) => {
     setModalVerif({ id: row.id, produk: row.produk, bagian: row.bagian, ...item });
-    const saved = verifAuthByBon[row.id];
-    setVerifNama(saved?.nama || "");
-    setVerifPassword(saved?.password || "");
+    setVerifNama("");
+    setVerifPassword("");
     setVerifJumlahKirim("");
     setVerifPesan("");
   };
@@ -276,11 +277,8 @@ export default function Home() {
     if (!verifJumlahKirim || Number(verifJumlahKirim) <= 0) {
       setVerifPesan("⚠️ Jumlah dikirim wajib diisi!"); return;
     }
-    const saved = verifAuthByBon[modalVerif.id];
-    const namaToUse = saved?.nama || verifNama;
-    const passwordToUse = saved?.password || verifPassword;
-    if (!namaToUse.trim()) { setVerifPesan("⚠️ Nama wajib diisi!"); return; }
-    if (!passwordToUse) { setVerifPesan("⚠️ Password wajib diisi!"); return; }
+    if (!verifNama.trim()) { setVerifPesan("⚠️ Nama wajib diisi!"); return; }
+    if (!verifPassword) { setVerifPesan("⚠️ Password wajib diisi!"); return; }
 
     const totalSudah = getTotalKirim(modalVerif.id, modalVerif.field);
     const sisa = Number(modalVerif.requested) - totalSudah;
@@ -296,17 +294,14 @@ export default function Home() {
         id_bon: modalVerif.id,
         field: modalVerif.field,
         jumlah_kirim: Number(verifJumlahKirim),
-        nama_verif: namaToUse,
-        password: passwordToUse,
+        nama_verif: verifNama,
+        password: verifPassword,
       }),
     });
     const data = await res.json();
     setVerifLoading(false);
     if (data.success) {
       setVerifPesan(`✅ Terkirim ${verifJumlahKirim} batch pada ${data.jam_verif}`);
-      if (!saved) {
-        setVerifAuthByBon((prev) => ({ ...prev, [modalVerif.id]: { nama: namaToUse, password: passwordToUse } }));
-      }
       fetchStatusVerif(modalVerif.id);
       setTimeout(() => {
         setModalVerif(null); setVerifNama(""); setVerifPassword("");
@@ -475,6 +470,7 @@ export default function Home() {
                   <option value="">-- Pilih Tujuan --</option>
                   <option value="Lokal">Lokal</option>
                   <option value="Ekspor">Ekspor</option>
+                  <option value="Lokal & Ekspor">Lokal & Ekspor</option>
                   <option value="Thailand">Thailand</option>
                 </select>
               </div>
@@ -518,6 +514,7 @@ export default function Home() {
                 .filter((row) => filterBagian === "" || row.bagian === filterBagian)
                 .map((row, i) => {
                   const verifItems = getVerifItems(row);
+                  const adaRevisi = (riwayatRevisi[row.id] || []).length > 0;
                   return (
                     <div key={i} className="border rounded-lg overflow-hidden">
                       <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
@@ -543,8 +540,6 @@ export default function Home() {
                                   </span>
                                 </div>
                               </div>
-
-                              {/* Riwayat Pengiriman */}
                               {riwayat.length > 0 && (
                                 <div className="space-y-0.5 mb-2">
                                   {riwayat.map((v, vi) => (
@@ -555,13 +550,8 @@ export default function Home() {
                                   ))}
                                 </div>
                               )}
-
-                              {/* Tombol Verifikasi */}
                               {!sudahLunas && (
-                                <button
-                                  onClick={() => handleOpenVerif(row, item)}
-                                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 rounded-lg mt-1"
-                                >
+                                <button onClick={() => handleOpenVerif(row, item)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 rounded-lg mt-1">
                                   ✅ Catat Pengiriman (sisa {sisa} batch)
                                 </button>
                               )}
@@ -571,7 +561,6 @@ export default function Home() {
                             </div>
                           );
                         })}
-
                         <div className="flex justify-between text-xs text-gray-500 pt-1 border-t">
                           <span>Tujuan: {row.tujuan}</span>
                           {row.keterangan && <span>Ket: {row.keterangan}</span>}
@@ -579,7 +568,15 @@ export default function Home() {
                       </div>
 
                       <div className="px-3 py-2 bg-gray-50 border-t">
-                        <button onClick={() => handleOpenRevisi(row)} className="w-full bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold py-2 rounded-lg">✏️ Revisi</button>
+                        {adaRevisi ? (
+                          <button onClick={() => handleOpenRevisi(row)} className="w-full bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2 rounded-lg">
+                            ⚠️ Revisi — ada {(riwayatRevisi[row.id] || []).length} perubahan
+                          </button>
+                        ) : (
+                          <button onClick={() => handleOpenRevisi(row)} className="w-full bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold py-2 rounded-lg">
+                            ✏️ Revisi
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -665,22 +662,14 @@ export default function Home() {
                 <label className="block text-sm font-medium mb-1">Jumlah Dikirim (batch)</label>
                 <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Jumlah dikirim" value={verifJumlahKirim} onChange={(e) => setVerifJumlahKirim(e.target.value)} />
               </div>
-              {verifAuthByBon[modalVerif.id] ? (
-                <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-                  Nama: <span className="font-semibold">{verifAuthByBon[modalVerif.id].nama}</span>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Nama</label>
-                    <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={verifNama} onChange={(e) => setVerifNama(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Password</label>
-                    <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password" value={verifPassword} onChange={(e) => setVerifPassword(e.target.value)} />
-                  </div>
-                </>
-              )}
+              <div>
+                <label className="block text-sm font-medium mb-1">Nama</label>
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={verifNama} onChange={(e) => setVerifNama(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Password</label>
+                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password" value={verifPassword} onChange={(e) => setVerifPassword(e.target.value)} />
+              </div>
             </div>
             {verifPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{verifPesan}</div>}
             <div className="flex gap-2">
