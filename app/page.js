@@ -605,7 +605,7 @@ export default function Home() {
                 </div>
               </div>
             )}
-            <div className="space-y-3 mb-3">
+            <div className="space-y-3 mb-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Field yang direvisi</label>
                 <select className="w-full border rounded-lg px-3 py-2 text-sm" value={revisiField} onChange={(e) => handleRevisiFieldChange(e.target.value)}>
@@ -631,50 +631,50 @@ export default function Home() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Password</label>
-                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password" value={revisiPassword} onChange={(e) => setRevisiPassword(e.target.value)} />
+                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password Otorisasi" value={revisiPassword} onChange={(e) => setRevisiPassword(e.target.value)} />
               </div>
             </div>
-            {revisiPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{revisiPesan}</div>}
-            <div className="flex gap-2">
-              <button onClick={() => setModalRevisi(null)} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
-              <button onClick={handleRevisi} disabled={revisiLoading} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-xl py-2 text-sm">
-                {revisiLoading ? "Menyimpan..." : "✏️ Simpan Revisi"}
+
+            {revisiPesan && <div className="mb-3 p-2 rounded-lg bg-yellow-50 text-yellow-800 text-xs font-medium">{revisiPesan}</div>}
+            
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setModalRevisi(null)} className="flex-1 bg-gray-200 hover:bg-gray-300 font-bold py-2 rounded-xl text-sm text-gray-700">Batal</button>
+              <button onClick={handleRevisi} disabled={revisiLoading} className="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 rounded-xl text-sm">
+                {revisiLoading ? "Proses..." : "Simpan Revisi"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal Verifikasi */}
+      {/* Modal Verifikasi / Catat Pengiriman */}
       {modalVerif && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-bold mb-1">✅ Catat Pengiriman</h3>
-            <p className="text-xs text-gray-500 mb-1">ID: {modalVerif.id}</p>
-            <p className="text-sm font-medium mb-1">{modalVerif.produk}</p>
-            <p className="text-sm font-semibold text-indigo-700 mb-1">{modalVerif.label}</p>
-            <p className="text-xs text-gray-500 mb-4">
-              BON: {modalVerif.requested} batch · Sudah kirim: {getTotalKirim(modalVerif.id, modalVerif.field)} batch · Sisa: {Number(modalVerif.requested) - getTotalKirim(modalVerif.id, modalVerif.field)} batch
-            </p>
-            <div className="space-y-3 mb-3">
+            <p className="text-xs text-gray-500 mb-4">{modalVerif.produk} · <strong>{modalVerif.label}</strong></p>
+            
+            <div className="space-y-3 mb-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Jumlah Dikirim (batch)</label>
-                <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Jumlah dikirim" value={verifJumlahKirim} onChange={(e) => setVerifJumlahKirim(e.target.value)} />
+                <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder={`Maks: ${Number(modalVerif.requested) - getTotalKirim(modalVerif.id, modalVerif.field)} batch`} value={verifJumlahKirim} onChange={(e) => setVerifJumlahKirim(e.target.value)} />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Nama</label>
-                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama lengkap" value={verifNama} onChange={(e) => setVerifNama(e.target.value)} />
+                <label className="block text-sm font-medium mb-1">Nama Verifikator</label>
+                <input className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Nama petugas logistik" value={verifNama} onChange={(e) => setVerifNama(e.target.value)} />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Password</label>
-                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password" value={verifPassword} onChange={(e) => setVerifPassword(e.target.value)} />
+                <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Password Otorisasi" value={verifPassword} onChange={(e) => setVerifPassword(e.target.value)} />
               </div>
             </div>
-            {verifPesan && <div className="mb-3 p-2 rounded-lg bg-blue-50 text-blue-800 text-sm">{verifPesan}</div>}
-            <div className="flex gap-2">
-              <button onClick={() => { setModalVerif(null); setVerifPesan(""); }} className="flex-1 border rounded-xl py-2 text-sm text-gray-600">Batal</button>
-              <button onClick={handleVerif} disabled={verifLoading} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl py-2 text-sm">
-                {verifLoading ? "Menyimpan..." : "✅ Konfirmasi"}
+
+            {verifPesan && <div className="mb-3 p-2 rounded-lg bg-indigo-50 text-indigo-800 text-xs font-medium">{verifPesan}</div>}
+
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setModalVerif(null)} className="flex-1 bg-gray-200 hover:bg-gray-300 font-bold py-2 rounded-xl text-sm text-gray-700">Batal</button>
+              <button onClick={handleVerif} disabled={verifLoading} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 rounded-xl text-sm">
+                {verifLoading ? "Proses..." : "Kirim"}
               </button>
             </div>
           </div>
