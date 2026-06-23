@@ -6,15 +6,15 @@ export async function POST(request) {
     const body = await request.json();
     const { id_bon, field, jumlah_kirim, nama_verif, password } = body;
 
-    // Cek password
+    // Cek password kirim di kolom C
     const usersRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Users!B2:B1000",
+      range: "Users!C2:C1000",
     });
-    const passwords = (usersRes.data.values || []).map((row) => row[0]);
+    const passwords = (usersRes.data.values || []).map((row) => row[0]).filter(Boolean);
     if (!passwords.includes(password)) {
       return new Response(
-        JSON.stringify({ success: false, error: "Password salah!" }),
+        JSON.stringify({ success: false, error: "Password pengiriman salah!" }),
         { status: 401, headers: { "Content-Type": "application/json" } }
       );
     }
@@ -26,32 +26,7 @@ export async function POST(request) {
       );
     }
 
-    // Cek total sudah terkirim untuk field ini
-    const verifRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: "Verif_RM!A2:E10000",
-    });
-    const rows = verifRes.data.values || [];
-    const existingRows = rows.filter((row) => row[0] === id_bon && row[1] === field);
-    const totalSudahKirim = existingRows.reduce((sum, row) => sum + Number(row[2] || 0), 0);
-
-    // Waktu Indonesia (WIB = UTC+7)
-    const now = new Date();
-    const wibOffset = 7 * 60 * 60 * 1000;
-    const wibTime = new Date(now.getTime() + wibOffset);
-    const jam_verif = wibTime.toISOString()
-      .replace("T", " ")
-      .replace("Z", "")
-      .slice(0, 19)
-      .split(" ")
-      .map((part, i) => {
-        if (i === 0) {
-          const [y, m, d] = part.split("-");
-          return `${d}/${m}/${y}`;
-        }
-        return part;
-      })
-      .join(", ");
+    const jam_verif = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
@@ -62,10 +37,8 @@ export async function POST(request) {
       },
     });
 
-    const totalBaru = totalSudahKirim + Number(jumlah_kirim);
-
     return new Response(
-      JSON.stringify({ success: true, jam_verif, total_kirim: totalBaru }),
+      JSON.stringify({ success: true, jam_verif }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {

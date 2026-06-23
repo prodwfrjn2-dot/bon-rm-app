@@ -6,22 +6,21 @@ export async function POST(request) {
     const body = await request.json();
     const { id_bon, field, nilai_lama, nilai_baru, nama_editor, password } = body;
 
-    // Cek password
+    // Cek password revisi di kolom B
     const usersRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: "Users!B2:B1000",
     });
-    const passwords = (usersRes.data.values || []).map((row) => row[0]);
+    const passwords = (usersRes.data.values || []).map((row) => row[0]).filter(Boolean);
     if (!passwords.includes(password)) {
       return new Response(
-        JSON.stringify({ success: false, error: "Password salah!" }),
+        JSON.stringify({ success: false, error: "Password revisi salah!" }),
         { status: 401, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    const waktu = new Date().toLocaleString("id-ID");
+    const waktu = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
-    // Simpan histori revisi
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: "Revisi_RM!A:F",
@@ -31,7 +30,6 @@ export async function POST(request) {
       },
     });
 
-    // Update nilai di BON_RM
     const bonRes = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: "BON_RM!A2:V10000",
