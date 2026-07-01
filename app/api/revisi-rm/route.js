@@ -1,4 +1,5 @@
 import { getSheets, SHEET_ID } from "@/lib/googleSheets";
+import { validasiBolehRevisi } from "@/lib/waktuHelper";
 
 export async function POST(request) {
   try {
@@ -19,6 +20,63 @@ export async function POST(request) {
       );
     }
 
+    // Ambil data BON untuk cek tanggal (batas jam revisi)
+    const bonRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "BON_RM!A2:V10000",
+    });
+    const bonRows = bonRes.data.values || [];
+    const rowIdx = bonRows.findIndex((row) => row[0] === id_bon);
+    if (rowIdx === -1) {
+      return new Response(
+        JSON.stringify({ success: false, error: "BON tidak ditemukan!" }),
+        { status: 404, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const bonRow = bonRows[rowIdx];
+    const tanggalBon = bonRow[2]; // kolom C = tanggal
+
+    // ATURAN 1: Revisi hanya boleh di hari yang sama & sebelum jam 20:00 WIB
+    const cekWaktu = validasiBolehRevisi(tanggalBon);
+    if (!cekWaktu.boleh) {
+      return new Response(
+        JSON.stringify({ success: false, error: cekWaktu.alasan }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // ATURAN 2: Field yang sudah pernah dikirim (ada di Verif_RM) tidak boleh direvisi.
+    // Pemetaan field revisi (alt_/bon_...) ke field pengiriman (adonan_putih, dst)
+    const fieldRevisiKeFieldKirim = {
+      alt_adonan_putih: "adonan_putih", bon_adonan_putih: "adonan_putih",
+      alt_adonan_pita: "adonan_pita", bon_adonan_pita: "adonan_pita",
+      alt_cream: "cream", bon_cream: "cream",
+      alt_adonan: "adonan", bon_adonan: "adonan",
+      alt_cream_spreading: "cream_spreading", bon_cream_spreading: "cream_spreading",
+      alt_cream_coating: "cream_coating", bon_cream_coating: "cream_coating",
+    };
+    const fieldKirimTerkait = fieldRevisiKeFieldKirim[field];
+
+    if (fieldKirimTerkait) {
+      const verifRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: SHEET_ID,
+        range: "Verif_RM!A2:F10000",
+      });
+      const verifRows = verifRes.data.values || [];
+      const sudahDikirim = verifRows.some(
+        (row) => row[0] === id_bon && row[1] === fieldKirimTerkait
+      );
+      if (sudahDikirim) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: "Item ini sudah ada pengiriman tercatat, tidak bisa direvisi lagi.",
+          }),
+          { status: 403, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     const waktu = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
 
     await sheets.spreadsheets.values.append({
@@ -30,12 +88,6 @@ export async function POST(request) {
       },
     });
 
-    const bonRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: "BON_RM!A2:V10000",
-    });
-
-    const rows = bonRes.data.values || [];
     const fieldMap = {
       alt_adonan_putih: "I", bon_adonan_putih: "J",
       alt_adonan_pita: "K", bon_adonan_pita: "L",
@@ -50,14 +102,6 @@ export async function POST(request) {
       return new Response(
         JSON.stringify({ success: false, error: "Field tidak valid!" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    const rowIdx = rows.findIndex((row) => row[0] === id_bon);
-    if (rowIdx === -1) {
-      return new Response(
-        JSON.stringify({ success: false, error: "BON tidak ditemukan!" }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
       );
     }
 

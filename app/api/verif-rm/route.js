@@ -1,4 +1,5 @@
 import { getSheets, SHEET_ID } from "@/lib/googleSheets";
+import { getShiftSekarang } from "@/lib/waktuHelper";
 
 export async function POST(request) {
   try {
@@ -27,18 +28,20 @@ export async function POST(request) {
     }
 
     const jam_verif = new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+    // Shift ditentukan otomatis dari jam sistem saat submit (WIB)
+    const shift = getShiftSekarang();
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
-      range: "Verif_RM!A:E",
+      range: "Verif_RM!A:F",
       valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[id_bon, field, Number(jumlah_kirim), nama_verif, jam_verif]],
+        values: [[id_bon, field, Number(jumlah_kirim), nama_verif, jam_verif, shift]],
       },
     });
 
     return new Response(
-      JSON.stringify({ success: true, jam_verif }),
+      JSON.stringify({ success: true, jam_verif, shift }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (error) {
@@ -57,7 +60,7 @@ export async function GET(request) {
 
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Verif_RM!A2:E10000",
+      range: "Verif_RM!A2:F10000",
     });
 
     const rows = response.data.values || [];
@@ -69,6 +72,7 @@ export async function GET(request) {
         jumlah_kirim: row[2] || "",
         nama_verif: row[3] || "",
         jam_verif: row[4] || "",
+        shift: row[5] || "",
       }));
 
     return new Response(
@@ -81,4 +85,4 @@ export async function GET(request) {
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
-} 
+}

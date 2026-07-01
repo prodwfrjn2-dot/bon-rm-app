@@ -1,6 +1,48 @@
 "use client";
 import { useState, useEffect } from "react";
 
+// ====== Helper waktu & shift (client-side, untuk UI saja) ======
+// Validasi final tetap dilakukan di server (lib/waktuHelper.js) supaya aman
+// dari manipulasi jam di sisi client. Fungsi di sini hanya untuk kontrol UI
+// (menampilkan/menyembunyikan tombol) agar pengalaman pengguna konsisten.
+
+function getWaktuWIBSekarangClient() {
+  const now = new Date();
+  const tanggalISO = now.toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
+  const jamStr = now.toLocaleTimeString("en-GB", { timeZone: "Asia/Jakarta", hour12: false });
+  const [jam, menit] = jamStr.split(":").map(Number);
+  return { tanggalISO, totalMenit: jam * 60 + menit };
+}
+
+function tanggalIdKeISOClient(tanggalId) {
+  if (!tanggalId) return null;
+  const parts = tanggalId.split("/");
+  if (parts.length !== 3) return null;
+  const [d, m, y] = parts;
+  return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+}
+
+// Cek apakah bon dengan tanggal tertentu (format DD/MM/YYYY) masih boleh direvisi:
+// harus hari ini & sebelum jam 20:00 WIB.
+function bolehRevisiClient(tanggalBonId) {
+  const { tanggalISO, totalMenit } = getWaktuWIBSekarangClient();
+  const tanggalBonISO = tanggalIdKeISOClient(tanggalBonId);
+  if (!tanggalBonISO) return false;
+  if (tanggalBonISO !== tanggalISO) return false;
+  if (totalMenit >= 20 * 60) return false; // lewat jam 20:00 WIB
+  return true;
+}
+
+// Pemetaan field revisi (alt_/bon_...) -> field pengiriman (di Verif_RM)
+const FIELD_REVISI_KE_KIRIM = {
+  alt_adonan_putih: "adonan_putih", bon_adonan_putih: "adonan_putih",
+  alt_adonan_pita: "adonan_pita", bon_adonan_pita: "adonan_pita",
+  alt_cream: "cream", bon_cream: "cream",
+  alt_adonan: "adonan", bon_adonan: "adonan",
+  alt_cream_spreading: "cream_spreading", bon_cream_spreading: "cream_spreading",
+  alt_cream_coating: "cream_coating", bon_cream_coating: "cream_coating",
+};
+
 export default function Home() {
   const [bagian, setBagian] = useState("");
   const [produkList, setProdukList] = useState([]);
@@ -47,6 +89,14 @@ export default function Home() {
   const [verifLoading, setVerifLoading] = useState(false);
   const [verifPesan, setVerifPesan] = useState("");
   const [statusVerif, setStatusVerif] = useState({});
+
+  // Detak jam untuk memaksa UI re-render setiap menit, supaya tombol Revisi
+  // otomatis hilang tepat saat lewat jam 20:00 WIB tanpa perlu refresh halaman.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick((t) => t + 1), 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const isWaferStick = bagian === "Wafer Stick";
   const isWaferFlat = bagian === "Wafer Flat";
@@ -98,6 +148,14 @@ export default function Home() {
   const getRiwayatKirim = (id_bon, field) => {
     const list = statusVerif[id_bon] || [];
     return list.filter((v) => v.field === field);
+  };
+
+  // Field revisi (alt_/bon_...) dianggap terkunci jika field pengiriman
+  // terkaitnya sudah punya minimal satu riwayat kirim.
+  const isFieldTerkunci = (id_bon, revisiFieldName) => {
+    const fieldKirim = FIELD_REVISI_KE_KIRIM[revisiFieldName];
+    if (!fieldKirim) return false;
+    return getRiwayatKirim(id_bon, fieldKirim).length > 0;
   };
 
   const generateId = () => {
@@ -171,6 +229,12 @@ export default function Home() {
   };
 
   const handleOpenRevisi = (row) => {
+    // Guard tambahan: walau tombol seharusnya sudah disembunyikan/disabled,
+    // cegah modal terbuka kalau ternyata di luar batas waktu revisi.
+    if (!bolehRevisiClient(row.tanggal)) {
+      setPesan("⚠️ Batas waktu revisi (20:00 WIB, hari yang sama) sudah lewat.");
+      return;
+    }
     setModalRevisi(row);
     setRevisiField(""); setRevisiNilaiLama(""); setRevisiNilaiBaru("");
     setRevisiNama(""); setRevisiPassword(""); setRevisiPesan("");
@@ -198,7 +262,15 @@ export default function Home() {
   };
 
   const handleRevisi = async () => {
+    if (!bolehRevisiClient(modalRevisi.tanggal)) {
+      setRevisiPesan("⚠️ Batas waktu revisi (20:00 WIB, hari yang sama) sudah lewat.");
+      return;
+    }
     if (!revisiField) { setRevisiPesan("⚠️ Pilih field yang ingin direvisi!"); return; }
+    if (isFieldTerkunci(modalRevisi.id, revisiField)) {
+      setRevisiPesan("⚠️ Item ini sudah ada pengiriman tercatat, tidak bisa direvisi.");
+      return;
+    }
     if (!revisiNilaiBaru) { setRevisiPesan("⚠️ Masukkan nilai baru!"); return; }
     if (!revisiNama.trim()) { setRevisiPesan("⚠️ Nama editor wajib diisi!"); return; }
     if (!revisiPassword) { setRevisiPesan("⚠️ Password wajib diisi!"); return; }
@@ -224,9 +296,10 @@ export default function Home() {
     }
   };
 
-  const getRevisiFields = (bagian, produk) => {
+  const getRevisiFields = (bagian, produk, id_bon) => {
     const isSuperstarProduk = produk?.toUpperCase().includes("SUPERSTAR");
-    if (bagian === "Wafer Stick") return [
+    let fields = [];
+    if (bagian === "Wafer Stick") fields = [
       { value: "alt_adonan_putih", label: "ALT Adonan Putih" },
       { value: "bon_adonan_putih", label: "BON Adonan Putih" },
       { value: "alt_adonan_pita", label: "ALT Adonan Pita" },
@@ -235,7 +308,7 @@ export default function Home() {
       { value: "bon_cream", label: "BON Cream" },
     ];
     if (bagian === "Wafer Flat") {
-      const fields = [
+      fields = [
         { value: "alt_adonan", label: "ALT Adonan" },
         { value: "bon_adonan", label: "BON Adonan" },
         { value: "alt_cream_spreading", label: "ALT Cream Spreading" },
@@ -245,9 +318,9 @@ export default function Home() {
         fields.push({ value: "alt_cream_coating", label: "ALT Cream Coating" });
         fields.push({ value: "bon_cream_coating", label: "BON Cream Coating" });
       }
-      return fields;
     }
-    return [];
+    // Field yang item pengirimannya sudah tercatat -> dikunci, tidak muncul di pilihan revisi
+    return fields.filter((f) => !isFieldTerkunci(id_bon, f.value));
   };
 
   const getVerifItems = (row) => {
@@ -301,7 +374,7 @@ export default function Home() {
     const data = await res.json();
     setVerifLoading(false);
     if (data.success) {
-      setVerifPesan(`✅ Terkirim ${verifJumlahKirim} batch pada ${data.jam_verif}`);
+      setVerifPesan(`✅ Terkirim ${verifJumlahKirim} batch (${data.shift}) pada ${data.jam_verif}`);
       fetchStatusVerif(modalVerif.id);
       setTimeout(() => {
         setModalVerif(null); setVerifNama(""); setVerifPassword("");
@@ -331,6 +404,7 @@ export default function Home() {
         .riwayat { color: #16a34a; font-size: 9px; padding-left: 8px; }
         .belum { color: #b91c1c; font-size: 9px; }
         .footer { padding: 4px 10px; color: #666; font-size: 10px; background: #f9fafb; }
+        .shift-badge { display: inline-block; background: #eef2ff; color: #4338ca; border-radius: 3px; padding: 0 4px; margin-left: 4px; font-size: 8px; }
       </style></head><body>
       <h2>📦 Laporan BON RM - ${tanggalFormatted}</h2>
       <div class="subtitle">Dicetak pada: ${new Date().toLocaleString("id-ID")}</div>
@@ -354,7 +428,7 @@ export default function Home() {
           </div>`;
         if (riwayat.length > 0) {
           riwayat.forEach((v) => {
-            html += `<div class="riwayat">✓ ${v.jumlah_kirim} batch — ${v.nama_verif} — ${v.jam_verif}</div>`;
+            html += `<div class="riwayat">✓ ${v.jumlah_kirim} batch — ${v.nama_verif} — ${v.jam_verif}${v.shift ? `<span class="shift-badge">${v.shift}</span>` : ""}</div>`;
           });
         } else {
           html += `<div class="belum">Belum ada pengiriman</div>`;
@@ -514,6 +588,12 @@ export default function Home() {
                 .map((row, i) => {
                   const verifItems = getVerifItems(row);
                   const adaRevisi = (riwayatRevisi[row.id] || []).length > 0;
+                  const semuaFieldTerkunci = verifItems.every((item) =>
+                    getRiwayatKirim(row.id, item.field).length > 0
+                  ) && verifItems.length > 0;
+                  const bolehRevisiWaktu = bolehRevisiClient(row.tanggal);
+                  const bisaRevisi = bolehRevisiWaktu && !semuaFieldTerkunci;
+
                   return (
                     <div key={i} className="border rounded-lg overflow-hidden">
                       <div className="bg-blue-600 text-white px-3 py-2 text-sm font-medium flex justify-between">
@@ -543,7 +623,14 @@ export default function Home() {
                                 <div className="space-y-0.5 mb-2">
                                   {riwayat.map((v, vi) => (
                                     <div key={vi} className="flex justify-between text-xs text-green-700">
-                                      <span>✓ {v.jumlah_kirim} batch — {v.nama_verif}</span>
+                                      <span>
+                                        ✓ {v.jumlah_kirim} batch — {v.nama_verif}
+                                        {v.shift && (
+                                          <span className="ml-1 inline-block bg-indigo-100 text-indigo-700 rounded px-1.5 text-[10px] font-semibold align-middle">
+                                            {v.shift}
+                                          </span>
+                                        )}
+                                      </span>
                                       <span className="text-gray-400">{v.jam_verif}</span>
                                     </div>
                                   ))}
@@ -555,7 +642,7 @@ export default function Home() {
                                 </button>
                               )}
                               {sudahLunas && (
-                                <div className="text-xs text-green-600 font-semibold text-center">✅ Selesai</div>
+                                <div className="text-xs text-green-600 font-semibold text-center">✅ Selesai · Terkunci dari revisi</div>
                               )}
                             </div>
                           );
@@ -567,13 +654,21 @@ export default function Home() {
                       </div>
 
                       <div className="px-3 py-2 bg-gray-50 border-t">
-                        {adaRevisi ? (
-                          <button onClick={() => handleOpenRevisi(row)} className="w-full bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2 rounded-lg">
-                            ⚠️ Revisi — ada {(riwayatRevisi[row.id] || []).length} perubahan
-                          </button>
+                        {bisaRevisi ? (
+                          adaRevisi ? (
+                            <button onClick={() => handleOpenRevisi(row)} className="w-full bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2 rounded-lg">
+                              ⚠️ Revisi — ada {(riwayatRevisi[row.id] || []).length} perubahan
+                            </button>
+                          ) : (
+                            <button onClick={() => handleOpenRevisi(row)} className="w-full bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold py-2 rounded-lg">
+                              ✏️ Revisi
+                            </button>
+                          )
                         ) : (
-                          <button onClick={() => handleOpenRevisi(row)} className="w-full bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-bold py-2 rounded-lg">
-                            ✏️ Revisi
+                          <button disabled className="w-full bg-gray-300 text-gray-500 text-xs font-bold py-2 rounded-lg cursor-not-allowed">
+                            🔒 {semuaFieldTerkunci
+                              ? "Bon sudah dikirim — tidak bisa direvisi"
+                              : "Batas waktu revisi (20:00 WIB) sudah lewat"}
                           </button>
                         )}
                       </div>
@@ -592,6 +687,11 @@ export default function Home() {
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-1">✏️ Revisi BON RM</h3>
             <p className="text-xs text-gray-500 mb-4">ID: {modalRevisi.id} · {modalRevisi.produk}</p>
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-2">
+              <p className="text-[11px] text-amber-700">
+                Revisi hanya berlaku hari ini sebelum jam 20:00 WIB. Item yang sudah ada pengiriman tercatat tidak dapat direvisi.
+              </p>
+            </div>
             {(riwayatRevisi[modalRevisi.id] || []).length > 0 && (
               <div className="mb-4 bg-gray-50 rounded-lg p-3">
                 <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Revisi:</p>
@@ -610,10 +710,13 @@ export default function Home() {
                 <label className="block text-sm font-medium mb-1">Field yang direvisi</label>
                 <select className="w-full border rounded-lg px-3 py-2 text-sm" value={revisiField} onChange={(e) => handleRevisiFieldChange(e.target.value)}>
                   <option value="">-- Pilih Field --</option>
-                  {getRevisiFields(modalRevisi.bagian, modalRevisi.produk).map((f) => (
+                  {getRevisiFields(modalRevisi.bagian, modalRevisi.produk, modalRevisi.id).map((f) => (
                     <option key={f.value} value={f.value}>{f.label}</option>
                   ))}
                 </select>
+                {getRevisiFields(modalRevisi.bagian, modalRevisi.produk, modalRevisi.id).length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">Semua item pada bon ini sudah ada pengiriman tercatat, tidak ada field yang bisa direvisi.</p>
+                )}
               </div>
               {revisiField && (
                 <div>
@@ -653,6 +756,11 @@ export default function Home() {
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm">
             <h3 className="text-lg font-bold mb-1">✅ Catat Pengiriman</h3>
             <p className="text-xs text-gray-500 mb-4">{modalVerif.produk} · <strong>{modalVerif.label}</strong></p>
+            <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-lg p-2">
+              <p className="text-[11px] text-indigo-700">
+                Setelah dikirim, item ini akan terkunci dan tidak bisa direvisi lagi. Shift dicatat otomatis dari jam saat ini.
+              </p>
+            </div>
             
             <div className="space-y-3 mb-4">
               <div>
