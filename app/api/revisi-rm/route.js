@@ -45,15 +45,27 @@ export async function POST(request) {
       );
     }
 
-    // ATURAN 2: Field yang sudah pernah dikirim (ada di Verif_RM) tidak boleh direvisi.
-    // Pemetaan field revisi (alt_/bon_...) ke field pengiriman (adonan_putih, dst)
+    // ATURAN 2: Field ALT tidak boleh direvisi sama sekali.
+    if (field.startsWith("alt_")) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "Field ALT tidak dapat direvisi.",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // ATURAN 3: Field BON (qty batch) boleh direvisi naik, tapi TIDAK BOLEH
+    // diturunkan di bawah total qty yang sudah tercatat dikirim di Verif_RM.
+    // Pemetaan field revisi (bon_...) ke field pengiriman (adonan_putih, dst)
     const fieldRevisiKeFieldKirim = {
-      alt_adonan_putih: "adonan_putih", bon_adonan_putih: "adonan_putih",
-      alt_adonan_pita: "adonan_pita", bon_adonan_pita: "adonan_pita",
-      alt_cream: "cream", bon_cream: "cream",
-      alt_adonan: "adonan", bon_adonan: "adonan",
-      alt_cream_spreading: "cream_spreading", bon_cream_spreading: "cream_spreading",
-      alt_cream_coating: "cream_coating", bon_cream_coating: "cream_coating",
+      bon_adonan_putih: "adonan_putih",
+      bon_adonan_pita: "adonan_pita",
+      bon_cream: "cream",
+      bon_adonan: "adonan",
+      bon_cream_spreading: "cream_spreading",
+      bon_cream_coating: "cream_coating",
     };
     const fieldKirimTerkait = fieldRevisiKeFieldKirim[field];
 
@@ -63,14 +75,15 @@ export async function POST(request) {
         range: "Verif_RM!A2:F10000",
       });
       const verifRows = verifRes.data.values || [];
-      const sudahDikirim = verifRows.some(
-        (row) => row[0] === id_bon && row[1] === fieldKirimTerkait
-      );
-      if (sudahDikirim) {
+      const totalSudahDikirim = verifRows
+        .filter((row) => row[0] === id_bon && row[1] === fieldKirimTerkait)
+        .reduce((sum, row) => sum + Number(row[2] || 0), 0);
+
+      if (Number(nilai_baru) < totalSudahDikirim) {
         return new Response(
           JSON.stringify({
             success: false,
-            error: "Item ini sudah ada pengiriman tercatat, tidak bisa direvisi lagi.",
+            error: `Qty tidak boleh dikurangi di bawah jumlah yang sudah dikirim (${totalSudahDikirim} batch).`,
           }),
           { status: 403, headers: { "Content-Type": "application/json" } }
         );

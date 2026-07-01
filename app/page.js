@@ -33,14 +33,15 @@ function bolehRevisiClient(tanggalBonId) {
   return true;
 }
 
-// Pemetaan field revisi (alt_/bon_...) -> field pengiriman (di Verif_RM)
+// Pemetaan field revisi BON (qty batch) -> field pengiriman (di Verif_RM).
+// Field ALT tidak masuk sini karena ALT tidak boleh direvisi sama sekali.
 const FIELD_REVISI_KE_KIRIM = {
-  alt_adonan_putih: "adonan_putih", bon_adonan_putih: "adonan_putih",
-  alt_adonan_pita: "adonan_pita", bon_adonan_pita: "adonan_pita",
-  alt_cream: "cream", bon_cream: "cream",
-  alt_adonan: "adonan", bon_adonan: "adonan",
-  alt_cream_spreading: "cream_spreading", bon_cream_spreading: "cream_spreading",
-  alt_cream_coating: "cream_coating", bon_cream_coating: "cream_coating",
+  bon_adonan_putih: "adonan_putih",
+  bon_adonan_pita: "adonan_pita",
+  bon_cream: "cream",
+  bon_adonan: "adonan",
+  bon_cream_spreading: "cream_spreading",
+  bon_cream_coating: "cream_coating",
 };
 
 export default function Home() {
@@ -150,12 +151,18 @@ export default function Home() {
     return list.filter((v) => v.field === field);
   };
 
-  // Field revisi (alt_/bon_...) dianggap terkunci jika field pengiriman
-  // terkaitnya sudah punya minimal satu riwayat kirim.
+  // Field ALT tidak pernah bisa direvisi. Field BON tetap bisa dipilih untuk
+  // direvisi (boleh dinaikkan); batas "tidak boleh diturunkan di bawah qty
+  // yang sudah dikirim" divalidasi terpisah saat submit (lihat handleRevisi).
   const isFieldTerkunci = (id_bon, revisiFieldName) => {
+    return revisiFieldName.startsWith("alt_");
+  };
+
+  // Total qty (batch) yang sudah tercatat dikirim untuk field BON tertentu.
+  const getTotalKirimUntukFieldBon = (id_bon, revisiFieldName) => {
     const fieldKirim = FIELD_REVISI_KE_KIRIM[revisiFieldName];
-    if (!fieldKirim) return false;
-    return getRiwayatKirim(id_bon, fieldKirim).length > 0;
+    if (!fieldKirim) return 0;
+    return getTotalKirim(id_bon, fieldKirim);
   };
 
   const generateId = () => {
@@ -268,10 +275,15 @@ export default function Home() {
     }
     if (!revisiField) { setRevisiPesan("⚠️ Pilih field yang ingin direvisi!"); return; }
     if (isFieldTerkunci(modalRevisi.id, revisiField)) {
-      setRevisiPesan("⚠️ Item ini sudah ada pengiriman tercatat, tidak bisa direvisi.");
+      setRevisiPesan("⚠️ Field ALT tidak dapat direvisi.");
       return;
     }
     if (!revisiNilaiBaru) { setRevisiPesan("⚠️ Masukkan nilai baru!"); return; }
+    const totalSudahKirim = getTotalKirimUntukFieldBon(modalRevisi.id, revisiField);
+    if (Number(revisiNilaiBaru) < totalSudahKirim) {
+      setRevisiPesan(`⚠️ Qty tidak boleh dikurangi di bawah jumlah yang sudah dikirim (${totalSudahKirim} batch).`);
+      return;
+    }
     if (!revisiNama.trim()) { setRevisiPesan("⚠️ Nama editor wajib diisi!"); return; }
     if (!revisiPassword) { setRevisiPesan("⚠️ Password wajib diisi!"); return; }
     setRevisiLoading(true); setRevisiPesan("");
@@ -296,31 +308,26 @@ export default function Home() {
     }
   };
 
+  // Hanya field BON (qty batch) yang bisa direvisi. Field ALT tidak pernah
+  // ditampilkan sebagai pilihan karena tidak boleh direvisi sama sekali.
   const getRevisiFields = (bagian, produk, id_bon) => {
     const isSuperstarProduk = produk?.toUpperCase().includes("SUPERSTAR");
     let fields = [];
     if (bagian === "Wafer Stick") fields = [
-      { value: "alt_adonan_putih", label: "ALT Adonan Putih" },
       { value: "bon_adonan_putih", label: "BON Adonan Putih" },
-      { value: "alt_adonan_pita", label: "ALT Adonan Pita" },
       { value: "bon_adonan_pita", label: "BON Adonan Pita" },
-      { value: "alt_cream", label: "ALT Cream" },
       { value: "bon_cream", label: "BON Cream" },
     ];
     if (bagian === "Wafer Flat") {
       fields = [
-        { value: "alt_adonan", label: "ALT Adonan" },
         { value: "bon_adonan", label: "BON Adonan" },
-        { value: "alt_cream_spreading", label: "ALT Cream Spreading" },
         { value: "bon_cream_spreading", label: "BON Cream Spreading" },
       ];
       if (isSuperstarProduk) {
-        fields.push({ value: "alt_cream_coating", label: "ALT Cream Coating" });
         fields.push({ value: "bon_cream_coating", label: "BON Cream Coating" });
       }
     }
-    // Field yang item pengirimannya sudah tercatat -> dikunci, tidak muncul di pilihan revisi
-    return fields.filter((f) => !isFieldTerkunci(id_bon, f.value));
+    return fields;
   };
 
   const getVerifItems = (row) => {
@@ -588,11 +595,11 @@ export default function Home() {
                 .map((row, i) => {
                   const verifItems = getVerifItems(row);
                   const adaRevisi = (riwayatRevisi[row.id] || []).length > 0;
-                  const semuaFieldTerkunci = verifItems.every((item) =>
-                    getRiwayatKirim(row.id, item.field).length > 0
-                  ) && verifItems.length > 0;
-                  const bolehRevisiWaktu = bolehRevisiClient(row.tanggal);
-                  const bisaRevisi = bolehRevisiWaktu && !semuaFieldTerkunci;
+                  // Revisi kini hanya dibatasi oleh jam (20:00 WIB, hari yang sama).
+                  // Field ALT tetap terkunci permanen, dan field BON boleh naik
+                  // tapi tidak boleh turun di bawah qty yang sudah dikirim —
+                  // keduanya divalidasi di dalam modal saat submit.
+                  const bisaRevisi = bolehRevisiClient(row.tanggal);
 
                   return (
                     <div key={i} className="border rounded-lg overflow-hidden">
@@ -642,7 +649,7 @@ export default function Home() {
                                 </button>
                               )}
                               {sudahLunas && (
-                                <div className="text-xs text-green-600 font-semibold text-center">✅ Selesai · Terkunci dari revisi</div>
+                                <div className="text-xs text-green-600 font-semibold text-center">✅ Selesai</div>
                               )}
                             </div>
                           );
@@ -666,9 +673,7 @@ export default function Home() {
                           )
                         ) : (
                           <button disabled className="w-full bg-gray-300 text-gray-500 text-xs font-bold py-2 rounded-lg cursor-not-allowed">
-                            🔒 {semuaFieldTerkunci
-                              ? "Bon sudah dikirim — tidak bisa direvisi"
-                              : "Batas waktu revisi (20:00 WIB) sudah lewat"}
+                            🔒 Batas waktu revisi (20:00 WIB) sudah lewat
                           </button>
                         )}
                       </div>
@@ -689,7 +694,7 @@ export default function Home() {
             <p className="text-xs text-gray-500 mb-4">ID: {modalRevisi.id} · {modalRevisi.produk}</p>
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-2">
               <p className="text-[11px] text-amber-700">
-                Revisi hanya berlaku hari ini sebelum jam 20:00 WIB. Item yang sudah ada pengiriman tercatat tidak dapat direvisi.
+                Revisi hanya berlaku hari ini sebelum jam 20:00 WIB. Hanya field BON (qty) yang bisa direvisi — boleh ditambah, tidak boleh dikurangi di bawah jumlah yang sudah dikirim. Field ALT tidak dapat direvisi.
               </p>
             </div>
             {(riwayatRevisi[modalRevisi.id] || []).length > 0 && (
@@ -715,18 +720,30 @@ export default function Home() {
                   ))}
                 </select>
                 {getRevisiFields(modalRevisi.bagian, modalRevisi.produk, modalRevisi.id).length === 0 && (
-                  <p className="text-xs text-red-500 mt-1">Semua item pada bon ini sudah ada pengiriman tercatat, tidak ada field yang bisa direvisi.</p>
+                  <p className="text-xs text-red-500 mt-1">Tidak ada field BON yang bisa direvisi untuk bon ini.</p>
                 )}
               </div>
               {revisiField && (
                 <div>
                   <label className="block text-sm font-medium mb-1">Nilai Lama</label>
                   <input className="w-full border rounded-lg px-3 py-2 text-sm bg-gray-50" value={revisiNilaiLama} readOnly />
+                  {getTotalKirimUntukFieldBon(modalRevisi.id, revisiField) > 0 && (
+                    <p className="text-[11px] text-indigo-600 mt-1">
+                      ℹ️ Sudah dikirim {getTotalKirimUntukFieldBon(modalRevisi.id, revisiField)} batch — nilai baru tidak boleh kurang dari ini.
+                    </p>
+                  )}
                 </div>
               )}
               <div>
                 <label className="block text-sm font-medium mb-1">Nilai Baru</label>
-                <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Masukkan nilai baru" value={revisiNilaiBaru} onChange={(e) => setRevisiNilaiBaru(e.target.value)} />
+                <input
+                  type="number"
+                  min={getTotalKirimUntukFieldBon(modalRevisi.id, revisiField) || 0}
+                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  placeholder="Masukkan nilai baru"
+                  value={revisiNilaiBaru}
+                  onChange={(e) => setRevisiNilaiBaru(e.target.value)}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Nama Editor</label>
