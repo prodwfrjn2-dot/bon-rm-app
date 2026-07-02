@@ -1,5 +1,5 @@
 import { getSheets, SHEET_ID } from "@/lib/googleSheets";
-import { validasiBolehRevisi } from "@/lib/waktuHelper";
+import { validasiBonMasihAktif, isFieldQuantity } from "@/lib/waktuHelper";
 
 export async function POST(request) {
   try {
@@ -37,7 +37,8 @@ export async function POST(request) {
     const tanggalBon = bonRow[2]; // kolom C = tanggal
 
     // ATURAN 1: Revisi hanya boleh di hari yang sama & sebelum jam 20:00 WIB
-    const cekWaktu = validasiBolehRevisi(tanggalBon);
+    // (lock total jam 20:00 — berlaku sama untuk revisi maupun catat pengiriman)
+    const cekWaktu = validasiBonMasihAktif(tanggalBon);
     if (!cekWaktu.boleh) {
       return new Response(
         JSON.stringify({ success: false, error: cekWaktu.alasan }),
@@ -56,34 +57,29 @@ export async function POST(request) {
       );
     }
 
-    // ATURAN 3: Field BON (qty batch) boleh direvisi naik, tapi TIDAK BOLEH
-    // diturunkan di bawah total qty yang sudah tercatat dikirim di Verif_RM.
-    // Pemetaan field revisi (bon_...) ke field pengiriman (adonan_putih, dst)
-    const fieldRevisiKeFieldKirim = {
-      bon_adonan_putih: "adonan_putih",
-      bon_adonan_pita: "adonan_pita",
-      bon_cream: "cream",
-      bon_adonan: "adonan",
-      bon_cream_spreading: "cream_spreading",
-      bon_cream_coating: "cream_coating",
-    };
-    const fieldKirimTerkait = fieldRevisiKeFieldKirim[field];
+    // ATURAN 3: Field BON (qty batch) boleh direvisi NAIK kapan saja (selama
+    // masih dalam jendela waktu aktif), tapi TIDAK BOLEH diturunkan di bawah
+    // nilai qty yang sedang tersimpan saat ini di BON_RM.
+    if (isFieldQuantity(field)) {
+      const kolomQtyMap = {
+        bon_adonan_putih: 9, bon_adonan_pita: 11, bon_cream: 13,
+        bon_adonan: 15, bon_cream_spreading: 17, bon_cream_coating: 19,
+      };
+      const idxKolom = kolomQtyMap[field];
+      const nilaiSaatIni = Number(bonRow[idxKolom] || 0);
+      const nilaiBaruNum = Number(nilai_baru);
 
-    if (fieldKirimTerkait) {
-      const verifRes = await sheets.spreadsheets.values.get({
-        spreadsheetId: SHEET_ID,
-        range: "Verif_RM!A2:F10000",
-      });
-      const verifRows = verifRes.data.values || [];
-      const totalSudahDikirim = verifRows
-        .filter((row) => row[0] === id_bon && row[1] === fieldKirimTerkait)
-        .reduce((sum, row) => sum + Number(row[2] || 0), 0);
-
-      if (Number(nilai_baru) < totalSudahDikirim) {
+      if (Number.isNaN(nilaiBaruNum)) {
+        return new Response(
+          JSON.stringify({ success: false, error: "Nilai baru harus berupa angka." }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (nilaiBaruNum < nilaiSaatIni) {
         return new Response(
           JSON.stringify({
             success: false,
-            error: `Qty tidak boleh dikurangi di bawah jumlah yang sudah dikirim (${totalSudahDikirim} batch).`,
+            error: `Qty tidak boleh dikurangi. Nilai saat ini: ${nilaiSaatIni} batch, nilai baru harus \u2265 ${nilaiSaatIni}.`,
           }),
           { status: 403, headers: { "Content-Type": "application/json" } }
         );

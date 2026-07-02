@@ -1,5 +1,5 @@
 import { getSheets, SHEET_ID } from "@/lib/googleSheets";
-import { getShiftSekarang } from "@/lib/waktuHelper";
+import { getShiftSekarang, validasiBonMasihAktif } from "@/lib/waktuHelper";
 
 export async function POST(request) {
   try {
@@ -24,6 +24,28 @@ export async function POST(request) {
       return new Response(
         JSON.stringify({ success: false, error: "Jumlah kirim tidak valid!" }),
         { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // Lock total jam 20:00 WIB: cek tanggal BON dulu, tolak jika sudah lewat
+    // hari yang sama atau sudah lewat jam 20:00.
+    const bonRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "BON_RM!A2:V10000",
+    });
+    const bonRows = bonRes.data.values || [];
+    const bonRow = bonRows.find((row) => row[0] === id_bon);
+    if (!bonRow) {
+      return new Response(
+        JSON.stringify({ success: false, error: "BON tidak ditemukan!" }),
+        { status: 404, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    const cekWaktu = validasiBonMasihAktif(bonRow[2]); // kolom C = tanggal
+    if (!cekWaktu.boleh) {
+      return new Response(
+        JSON.stringify({ success: false, error: cekWaktu.alasan }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
       );
     }
 

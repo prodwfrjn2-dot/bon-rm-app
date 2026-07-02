@@ -22,9 +22,10 @@ function tanggalIdKeISOClient(tanggalId) {
   return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
 }
 
-// Cek apakah bon dengan tanggal tertentu (format DD/MM/YYYY) masih boleh direvisi:
-// harus hari ini & sebelum jam 20:00 WIB.
-function bolehRevisiClient(tanggalBonId) {
+// Cek apakah bon dengan tanggal tertentu (format DD/MM/YYYY) masih AKTIF
+// (belum lewat hari & belum lewat jam 20:00 WIB). Ini dipakai sebagai LOCK
+// TOTAL untuk dua aksi: Revisi dan Catat Pengiriman.
+function bonMasihAktifClient(tanggalBonId) {
   const { tanggalISO, totalMenit } = getWaktuWIBSekarangClient();
   const tanggalBonISO = tanggalIdKeISOClient(tanggalBonId);
   if (!tanggalBonISO) return false;
@@ -34,7 +35,7 @@ function bolehRevisiClient(tanggalBonId) {
 }
 
 // Pemetaan field revisi BON (qty batch) -> field pengiriman (di Verif_RM).
-// Field ALT tidak masuk sini karena ALT tidak boleh direvisi sama sekali.
+// Field ALT tidak masuk sini karena ALT full-lock begitu item sudah dikirim.
 const FIELD_REVISI_KE_KIRIM = {
   bon_adonan_putih: "adonan_putih",
   bon_adonan_pita: "adonan_pita",
@@ -43,6 +44,12 @@ const FIELD_REVISI_KE_KIRIM = {
   bon_cream_spreading: "cream_spreading",
   bon_cream_coating: "cream_coating",
 };
+
+// Field "bon_*" adalah quantity — boleh direvisi naik walau sudah dikirim,
+// tapi tidak boleh diturunkan. Field "alt_*" full-lock begitu ada pengiriman.
+function isFieldQuantityClient(fieldName) {
+  return typeof fieldName === "string" && fieldName.startsWith("bon_");
+}
 
 export default function Home() {
   const [bagian, setBagian] = useState("");
@@ -159,6 +166,8 @@ export default function Home() {
   };
 
   // Total qty (batch) yang sudah tercatat dikirim untuk field BON tertentu.
+  // Dipakai hanya sebagai info tambahan di UI (validasi utama qty memakai
+  // nilai saat ini di kolom BON_RM, lihat handleRevisi & handleRevisiFieldChange).
   const getTotalKirimUntukFieldBon = (id_bon, revisiFieldName) => {
     const fieldKirim = FIELD_REVISI_KE_KIRIM[revisiFieldName];
     if (!fieldKirim) return 0;
@@ -237,9 +246,9 @@ export default function Home() {
 
   const handleOpenRevisi = (row) => {
     // Guard tambahan: walau tombol seharusnya sudah disembunyikan/disabled,
-    // cegah modal terbuka kalau ternyata di luar batas waktu revisi.
-    if (!bolehRevisiClient(row.tanggal)) {
-      setPesan("⚠️ Batas waktu revisi (20:00 WIB, hari yang sama) sudah lewat.");
+    // cegah modal terbuka kalau ternyata BON sudah terkunci (lewat hari atau lewat jam 20:00).
+    if (!bonMasihAktifClient(row.tanggal)) {
+      setPesan("⚠️ BON ini sudah terkunci (lewat hari atau sudah lewat jam 20:00 WIB).");
       return;
     }
     setModalRevisi(row);
@@ -269,8 +278,8 @@ export default function Home() {
   };
 
   const handleRevisi = async () => {
-    if (!bolehRevisiClient(modalRevisi.tanggal)) {
-      setRevisiPesan("⚠️ Batas waktu revisi (20:00 WIB, hari yang sama) sudah lewat.");
+    if (!bonMasihAktifClient(modalRevisi.tanggal)) {
+      setRevisiPesan("⚠️ BON ini sudah terkunci (lewat hari atau sudah lewat jam 20:00 WIB).");
       return;
     }
     if (!revisiField) { setRevisiPesan("⚠️ Pilih field yang ingin direvisi!"); return; }
@@ -279,10 +288,14 @@ export default function Home() {
       return;
     }
     if (!revisiNilaiBaru) { setRevisiPesan("⚠️ Masukkan nilai baru!"); return; }
-    const totalSudahKirim = getTotalKirimUntukFieldBon(modalRevisi.id, revisiField);
-    if (Number(revisiNilaiBaru) < totalSudahKirim) {
-      setRevisiPesan(`⚠️ Qty tidak boleh dikurangi di bawah jumlah yang sudah dikirim (${totalSudahKirim} batch).`);
-      return;
+    // Qty (field BON) tidak boleh diturunkan di bawah nilai yang saat ini
+    // tersimpan di BON_RM (bukan hanya total yang sudah dikirim).
+    if (isFieldQuantityClient(revisiField)) {
+      const nilaiSaatIni = Number(revisiNilaiLama || 0);
+      if (Number(revisiNilaiBaru) < nilaiSaatIni) {
+        setRevisiPesan(`⚠️ Qty tidak boleh dikurangi. Nilai saat ini: ${nilaiSaatIni} batch.`);
+        return;
+      }
     }
     if (!revisiNama.trim()) { setRevisiPesan("⚠️ Nama editor wajib diisi!"); return; }
     if (!revisiPassword) { setRevisiPesan("⚠️ Password wajib diisi!"); return; }
@@ -346,7 +359,13 @@ export default function Home() {
   };
 
   const handleOpenVerif = (row, item) => {
-    setModalVerif({ id: row.id, produk: row.produk, bagian: row.bagian, ...item });
+    // Guard tambahan: walau tombol seharusnya sudah disembunyikan/disabled,
+    // cegah modal terbuka kalau BON sudah terkunci.
+    if (!bonMasihAktifClient(row.tanggal)) {
+      setPesan("⚠️ BON ini sudah terkunci (lewat hari atau sudah lewat jam 20:00 WIB).");
+      return;
+    }
+    setModalVerif({ id: row.id, produk: row.produk, bagian: row.bagian, tanggal: row.tanggal, ...item });
     setVerifNama("");
     setVerifPassword("");
     setVerifJumlahKirim("");
@@ -354,6 +373,10 @@ export default function Home() {
   };
 
   const handleVerif = async () => {
+    if (!bonMasihAktifClient(modalVerif.tanggal)) {
+      setVerifPesan("⚠️ BON ini sudah terkunci (lewat hari atau sudah lewat jam 20:00 WIB).");
+      return;
+    }
     if (!verifJumlahKirim || Number(verifJumlahKirim) <= 0) {
       setVerifPesan("⚠️ Jumlah dikirim wajib diisi!"); return;
     }
@@ -392,64 +415,196 @@ export default function Home() {
     }
   };
 
+  // Laporan PDF dicetak dalam format potrait A4, rapi untuk arsip fisik:
+  // margin standar, tabel per-BON, dan page-break yang menghindari baris terpotong.
   const handleDownloadPDF = () => {
     const filtered = history.filter((row) => filterBagian === "" || row.bagian === filterBagian);
     const tanggalFormatted = new Date(filterTanggal).toLocaleDateString("id-ID", {
       day: "numeric", month: "long", year: "numeric"
     });
+
     let html = `
-      <html><head><title>BON RM ${tanggalFormatted}</title>
-      <style>
-        body { font-family: Arial, sans-serif; font-size: 11px; margin: 20px; }
-        h2 { font-size: 14px; margin-bottom: 4px; }
-        .subtitle { color: #666; margin-bottom: 16px; font-size: 11px; }
-        .group { margin-bottom: 16px; page-break-inside: avoid; border: 1px solid #e5e7eb; border-radius: 4px; overflow: hidden; }
-        .group-header { background: #1d4ed8; color: white; padding: 6px 10px; font-weight: bold; display: flex; justify-content: space-between; }
-        .produk { background: #f3f4f6; padding: 4px 10px; font-size: 10px; color: #444; }
-        .item { padding: 4px 10px; border-bottom: 1px solid #f3f4f6; }
-        .item-header { display: flex; justify-content: space-between; font-weight: bold; }
-        .riwayat { color: #16a34a; font-size: 9px; padding-left: 8px; }
-        .belum { color: #b91c1c; font-size: 9px; }
-        .footer { padding: 4px 10px; color: #666; font-size: 10px; background: #f9fafb; }
-        .shift-badge { display: inline-block; background: #eef2ff; color: #4338ca; border-radius: 3px; padding: 0 4px; margin-left: 4px; font-size: 8px; }
-      </style></head><body>
-      <h2>📦 Laporan BON RM - ${tanggalFormatted}</h2>
-      <div class="subtitle">Dicetak pada: ${new Date().toLocaleString("id-ID")}</div>
+      <html>
+      <head>
+        <title>BON RM ${tanggalFormatted}</title>
+        <style>
+          @page { size: A4 portrait; margin: 15mm 12mm; }
+          * { box-sizing: border-box; }
+          body {
+            font-family: Arial, Helvetica, sans-serif;
+            font-size: 10px;
+            color: #1f2937;
+            margin: 0;
+          }
+          .header {
+            text-align: center;
+            border-bottom: 2px solid #1d4ed8;
+            padding-bottom: 8px;
+            margin-bottom: 14px;
+          }
+          .header h1 {
+            font-size: 15px;
+            margin: 0 0 2px 0;
+            color: #1d4ed8;
+          }
+          .header .sub {
+            font-size: 10px;
+            color: #6b7280;
+            margin: 0;
+          }
+          .bon-card {
+            border: 1px solid #d1d5db;
+            border-radius: 3px;
+            margin-bottom: 10px;
+            page-break-inside: avoid;
+            overflow: hidden;
+          }
+          .bon-head {
+            background: #1d4ed8;
+            color: #ffffff;
+            padding: 5px 8px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            font-weight: bold;
+          }
+          .bon-sub {
+            background: #f3f4f6;
+            padding: 3px 8px;
+            font-size: 9px;
+            color: #374151;
+            display: flex;
+            justify-content: space-between;
+          }
+          table.item-table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          table.item-table th {
+            background: #eef2ff;
+            color: #374151;
+            font-size: 8.5px;
+            text-align: left;
+            padding: 3px 8px;
+            border-top: 1px solid #e5e7eb;
+            border-bottom: 1px solid #e5e7eb;
+          }
+          table.item-table td {
+            font-size: 9px;
+            padding: 3px 8px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: top;
+          }
+          table.item-table tr:last-child td {
+            border-bottom: none;
+          }
+          .riwayat-line {
+            color: #15803d;
+            font-size: 8.5px;
+            margin-top: 1px;
+          }
+          .belum-line {
+            color: #b91c1c;
+            font-size: 8.5px;
+            font-style: italic;
+          }
+          .shift-badge {
+            display: inline-block;
+            background: #eef2ff;
+            color: #4338ca;
+            border-radius: 3px;
+            padding: 0 4px;
+            margin-left: 4px;
+            font-size: 7.5px;
+            font-weight: bold;
+          }
+          .bon-footer {
+            padding: 4px 8px;
+            font-size: 8.5px;
+            color: #4b5563;
+            background: #f9fafb;
+            display: flex;
+            justify-content: space-between;
+            border-top: 1px solid #e5e7eb;
+          }
+          .print-footer {
+            margin-top: 10px;
+            text-align: right;
+            font-size: 8px;
+            color: #9ca3af;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>📦 Laporan BON RM</h1>
+          <p class="sub">${tanggalFormatted}${filterBagian ? " · " + filterBagian : ""}</p>
+        </div>
     `;
+
     filtered.forEach((row) => {
       html += `
-        <div class="group">
-          <div class="group-header">
+        <div class="bon-card">
+          <div class="bon-head">
             <span>${row.bagian} · Line ${row.line} · ${row.pengorder}</span>
             <span>${row.tanggal} ${row.jam}</span>
           </div>
-          <div class="produk">${row.produk} · ID: ${row.id}</div>
+          <div class="bon-sub">
+            <span>${row.produk}</span>
+            <span>ID: ${row.id}</span>
+          </div>
+          <table class="item-table">
+            <thead>
+              <tr>
+                <th style="width:38%">Item</th>
+                <th style="width:14%">ALT</th>
+                <th style="width:14%">BON (batch)</th>
+                <th style="width:14%">Terkirim</th>
+                <th style="width:20%">Riwayat Pengiriman</th>
+              </tr>
+            </thead>
+            <tbody>
       `;
       getVerifItems(row).forEach((item) => {
         const riwayat = getRiwayatKirim(row.id, item.field);
         const total = riwayat.reduce((s, v) => s + Number(v.jumlah_kirim || 0), 0);
-        html += `<div class="item">
-          <div class="item-header">
-            <span>${item.label} (ALT ${item.alt}) — BON ${item.requested} batch</span>
-            <span>Total kirim: ${total} batch</span>
-          </div>`;
-        if (riwayat.length > 0) {
-          riwayat.forEach((v) => {
-            html += `<div class="riwayat">✓ ${v.jumlah_kirim} batch — ${v.nama_verif} — ${v.jam_verif}${v.shift ? `<span class="shift-badge">${v.shift}</span>` : ""}</div>`;
-          });
-        } else {
-          html += `<div class="belum">Belum ada pengiriman</div>`;
-        }
-        html += `</div>`;
+        const riwayatHtml = riwayat.length > 0
+          ? riwayat.map((v) => `<div class="riwayat-line">✓ ${v.jumlah_kirim} btc — ${v.nama_verif} — ${v.jam_verif}${v.shift ? `<span class="shift-badge">${v.shift}</span>` : ""}</div>`).join("")
+          : `<div class="belum-line">Belum ada pengiriman</div>`;
+        html += `
+              <tr>
+                <td>${item.label}</td>
+                <td>${item.alt || "-"}</td>
+                <td>${item.requested}</td>
+                <td>${total}</td>
+                <td>${riwayatHtml}</td>
+              </tr>
+        `;
       });
-      html += `<div class="footer">Tujuan: ${row.tujuan}${row.keterangan ? " · Ket: " + row.keterangan : ""}</div>`;
-      html += `</div>`;
+      html += `
+            </tbody>
+          </table>
+          <div class="bon-footer">
+            <span>Tujuan: ${row.tujuan}</span>
+            <span>${row.keterangan ? "Ket: " + row.keterangan : ""}</span>
+          </div>
+        </div>
+      `;
     });
-    html += `</body></html>`;
+
+    html += `
+        <div class="print-footer">Dicetak pada: ${new Date().toLocaleString("id-ID", { timeZone: "Asia/Jakarta" })} WIB</div>
+      </body>
+      </html>
+    `;
+
     const win = window.open("", "_blank");
     win.document.write(html);
     win.document.close();
-    win.print();
+    win.focus();
+    win.onload = () => win.print();
+    // Fallback jika onload tidak sempat terpasang sebelum konten selesai render
+    setTimeout(() => win.print(), 300);
   };
 
   return (
@@ -595,11 +750,11 @@ export default function Home() {
                 .map((row, i) => {
                   const verifItems = getVerifItems(row);
                   const adaRevisi = (riwayatRevisi[row.id] || []).length > 0;
-                  // Revisi kini hanya dibatasi oleh jam (20:00 WIB, hari yang sama).
-                  // Field ALT tetap terkunci permanen, dan field BON boleh naik
-                  // tapi tidak boleh turun di bawah qty yang sudah dikirim —
-                  // keduanya divalidasi di dalam modal saat submit.
-                  const bisaRevisi = bolehRevisiClient(row.tanggal);
+                  // Lock total jam 20:00 WIB (hari yang sama) berlaku untuk
+                  // Revisi MAUPUN Catat Pengiriman. Field ALT tetap terkunci
+                  // permanen begitu ada pengiriman, field BON boleh naik tapi
+                  // tidak boleh turun di bawah qty saat ini — divalidasi di modal.
+                  const bonAktif = bonMasihAktifClient(row.tanggal);
 
                   return (
                     <div key={i} className="border rounded-lg overflow-hidden">
@@ -643,9 +798,14 @@ export default function Home() {
                                   ))}
                                 </div>
                               )}
-                              {!sudahLunas && (
+                              {!sudahLunas && bonAktif && (
                                 <button onClick={() => handleOpenVerif(row, item)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 rounded-lg mt-1">
                                   ✅ Catat Pengiriman (sisa {sisa} batch)
+                                </button>
+                              )}
+                              {!sudahLunas && !bonAktif && (
+                                <button disabled className="w-full bg-gray-300 text-gray-500 text-xs font-bold py-1.5 rounded-lg mt-1 cursor-not-allowed">
+                                  🔒 Terkunci (lewat jam 20:00 WIB)
                                 </button>
                               )}
                               {sudahLunas && (
@@ -661,7 +821,7 @@ export default function Home() {
                       </div>
 
                       <div className="px-3 py-2 bg-gray-50 border-t">
-                        {bisaRevisi ? (
+                        {bonAktif ? (
                           adaRevisi ? (
                             <button onClick={() => handleOpenRevisi(row)} className="w-full bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-2 rounded-lg">
                               ⚠️ Revisi — ada {(riwayatRevisi[row.id] || []).length} perubahan
@@ -673,7 +833,7 @@ export default function Home() {
                           )
                         ) : (
                           <button disabled className="w-full bg-gray-300 text-gray-500 text-xs font-bold py-2 rounded-lg cursor-not-allowed">
-                            🔒 Batas waktu revisi (20:00 WIB) sudah lewat
+                            🔒 BON terkunci (lewat jam 20:00 WIB / lewat hari)
                           </button>
                         )}
                       </div>
